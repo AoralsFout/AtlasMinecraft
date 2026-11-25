@@ -4,7 +4,10 @@ import (
 	"atlas/internal/tickqueue"
 	"atlas/internal/worldgen"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestScheduledBlockFailureRetainsFluidPhase(t *testing.T) {
@@ -60,4 +63,177 @@ func TestScheduledBlockFailureRetainsFluidPhase(t *testing.T) {
 	if o.blocks.Len() != 0 || o.level.Len() != 0 || o.chunks[tickqueue.ChunkKey(0, 0)].blocks.Len() != 0 {
 		t.Fatal("stale scheduled entries survived retry")
 	}
+}
+
+func TestColdBlockEditDoesNotBlockWorldClock(t *testing.T) {
+	loading, release := make(chan struct{}), make(chan struct{})
+	var unblock sync.Once
+	w := testGenerationWorld(1, func(x, z int32) (*Chunk, error) {
+		close(loading)
+		<-release
+		return NewChunk(x, z), nil
+	})
+	t.Cleanup(func() {
+		unblock.Do(func() { close(release) })
+		w.Close()
+	})
+	edited := make(chan error, 1)
+	go func() { edited <- w.SetBlock(128, 64, 0, StateStone) }()
+	select {
+	case <-loading:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cold edit did not request terrain")
+	}
+	ticked := make(chan error, 1)
+	go func() { ticked <- w.Tick(TickChunks{}) }()
+	select {
+	case err := <-ticked:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("world clock waited for remote terrain generation")
+	}
+	unblock.Do(func() { close(release) })
+	if err := <-edited; !errors.Is(err, ErrVanillaGenerationUnavailable) {
+		t.Fatalf("test world does not persist edits, got %v", err)
+	}
+}
+
+func TestLiveTickRetriesFailedBlockWhileSandAndWaterAdvance(t *testing.T) {
+	w, _ := mechanicsWorld(t)
+	centers := map[ChunkPosition]struct{}{{0, 0}: {}}
+	water, err := BlockStateID("minecraft:water", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for z := int32(-1); z <= 1; z++ {
+		if _, err := w.LoadChunk(2, z); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, wall := range []BlockPosition{{14, -45, 8}, {16, -45, 8}, {15, -45, 7}, {15, -45, 9}, {15, -46, 8}} {
+		if err := w.SetBlock(wall.X, wall.Y, wall.Z, StateStone); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A settled source gains a pending tick when the barrier in the next chunk is dug.
+	w.blockUpdateMu.Lock()
+	_, err = w.editBlock(setBlockMsg{x: 15, y: -45, z: 8, state: water, raw: true, flags: 2})
+	w.blockUpdateMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.TryPlaceBlock(BlockPosition{16, -45, 8}, StateStone, StateAir, nil); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if err := w.TickPlayers(centers, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	farmland, err := BlockStateID("minecraft:farmland", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetBlock(9, 64, 9, farmland); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: 9, Y: 64, Z: 9}, "minecraft:farmland", 2, 0); err != nil {
+		t.Fatal(err)
+	}
+	sand, err := BlockStateID("minecraft:sand", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetBlock(12, -48, 8, sand); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.TickPlayers(centers, 1); err != nil {
+		t.Fatal(err)
+	}
+	err = w.TickPlayers(centers, 1)
+	if !errors.Is(err, worldgen.ErrUnsupportedScheduledBlock) || !strings.Contains(err.Error(), "minecraft:farmland at 9,64,9") {
+		t.Fatalf("live tick should report the failed request, got %v", err)
+	}
+	flow, err := BlockStateID("minecraft:water", map[string]string{"level": "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(x, y, z int32, want uint32) {
+		t.Helper()
+		if got, err := w.BlockAt(x, y, z); err != nil || got != want {
+			t.Fatalf("block at %d,%d,%d: got %d want %d, err=%v", x, y, z, got, want, err)
+		}
+	}
+	check(12, -48, 8, StateAir)
+	check(16, -45, 8, flow)
+	w.scheduledTicks.mu.Lock()
+	queued := w.scheduledTicks.blocks.Has(tickqueue.Position{X: 9, Y: 64, Z: 9}, "minecraft:farmland")
+	w.scheduledTicks.mu.Unlock()
+	if !queued {
+		t.Fatal("failed request was lost")
+	}
+	if err := w.SetBlock(15, -45, 8, StateAir); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		if err := w.TickPlayers(centers, 1); err != nil {
+			t.Fatal("failed request was retried before its delay", err)
+		}
+	}
+	check(16, -45, 8, StateAir)
+	for range simulationRetryDelay - 6 {
+		if err := w.TickPlayers(centers, 1); err != nil {
+			t.Fatal("failed request was retried before its delay", err)
+		}
+	}
+	if err := w.TickPlayers(centers, 1); !errors.Is(err, worldgen.ErrUnsupportedScheduledBlock) {
+		t.Fatalf("retained failure was not retried, got %v", err)
+	}
+}
+
+func TestLiveLeafDistanceUpdatesFlushAtWorldSave(t *testing.T) {
+	w, _ := mechanicsWorld(t)
+	const x, y, z = 8, 64, 8
+	state := func(name string, properties map[string]string) uint32 {
+		t.Helper()
+		id, err := BlockStateID(name, properties)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	before := state("oak_leaves", map[string]string{"distance": "7"})
+	after := state("oak_leaves", map[string]string{"distance": "1"})
+	if err := w.SetBlock(x-1, y, z, state("oak_log", nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetBlock(x, y, z, before); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: x, Y: y, Z: z}, "minecraft:oak_leaves", 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.TickPlayers(map[ChunkPosition]struct{}{{0, 0}: {}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := w.BlockAt(x, y, z); err != nil || got != after {
+		t.Fatalf("leaf distance after tick: got %d want %d, err=%v", got, after, err)
+	}
+	checkSaved := func(want uint32) {
+		t.Helper()
+		chunk, err := w.store.vanilla.loadBlockChunk(0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := chunk.GetBlock(x, z, y); got != want {
+			t.Fatalf("saved leaf state: got %d want %d", got, want)
+		}
+	}
+	checkSaved(before)
+	if err := w.Save(); err != nil {
+		t.Fatal(err)
+	}
+	checkSaved(after)
 }

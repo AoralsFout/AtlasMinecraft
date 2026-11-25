@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -17,8 +18,9 @@ type fallingEntityKey struct {
 	x, z int32
 }
 type fallingEntityOrder struct {
-	mu      sync.Mutex
-	entries []fallingEntityKey
+	mu        sync.Mutex
+	entries   []fallingEntityKey
+	snapshots map[[16]byte]WorldEntity
 }
 
 func (o *fallingEntityOrder) register(ch *Chunk) {
@@ -28,16 +30,13 @@ func (o *fallingEntityOrder) register(ch *Chunk) {
 		if e.Type != "minecraft:falling_block" {
 			continue
 		}
-		found := false
-		for _, key := range o.entries {
-			if key.uuid == e.UUID {
-				found = true
-				break
-			}
+		if o.snapshots == nil {
+			o.snapshots = make(map[[16]byte]WorldEntity)
 		}
-		if !found {
+		if _, found := o.snapshots[e.UUID]; !found {
 			o.entries = append(o.entries, fallingEntityKey{e.UUID, ch.cx, ch.cz})
 		}
+		o.snapshots[e.UUID] = e
 	}
 }
 func (o *fallingEntityOrder) unregister(x, z int32) {
@@ -47,6 +46,8 @@ func (o *fallingEntityOrder) unregister(x, z int32) {
 	for _, e := range o.entries {
 		if e.x != x || e.z != z {
 			out = append(out, e)
+		} else {
+			delete(o.snapshots, e.uuid)
 		}
 	}
 	o.entries = out
@@ -57,9 +58,23 @@ func (o *fallingEntityOrder) remove(uuid [16]byte) {
 	for i, key := range o.entries {
 		if key.uuid == uuid {
 			o.entries = append(o.entries[:i], o.entries[i+1:]...)
+			delete(o.snapshots, uuid)
 			return
 		}
 	}
+}
+
+// FallingEntities returns immutable snapshots of the dimension's loaded
+// falling blocks. Publishing them does not wait on region actors or load chunks.
+func (w *World) FallingEntities() []WorldEntity {
+	o := &w.fallingEntities
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	snapshots := make([]WorldEntity, len(o.entries))
+	for i, key := range o.entries {
+		snapshots[i] = o.snapshots[key.uuid]
+	}
+	return snapshots
 }
 
 // Actor operations are synchronous under World.blockUpdateMu. Entity NBT and
@@ -88,7 +103,15 @@ func (r *Region) runFallingEntityOperation(op fallingEntityOperation) {
 		op.result <- ErrChunkNotLoaded
 		return
 	}
-	op.result <- op.run(r, ch)
+	err := op.run(r, ch)
+	if h := ch.scheduledTicks; h != nil {
+		root, _ := ch.anvilRoot.Object()
+		falling, kelp := recoveryJournals(root)
+		h.owner.mu.Lock()
+		h.fallingRecovery, h.kelpRecovery = falling, kelp
+		h.owner.mu.Unlock()
+	}
+	op.result <- err
 }
 
 func persistFallingEntities(r *Region, ch *Chunk, entities []WorldEntity) error {
@@ -253,15 +276,8 @@ func (r *fluidRuntime) finishFallingSpawn(entry nbt.Object) error {
 	})
 }
 
-func (r *fluidRuntime) recoverFallingSpawns() error {
-	o := r.world.scheduledTicks
-	o.mu.Lock()
-	keys := make([]chunkKey, 0, len(o.loadOrder))
-	for _, ch := range o.loadOrder {
-		keys = append(keys, chunkKey{ch.x, ch.z})
-	}
-	o.mu.Unlock()
-	for _, key := range keys {
+func (r *fluidRuntime) recoverFallingSpawns(live bool) error {
+	return r.recoverJournals(true, live, func(key chunkKey) error {
 		var pending []nbt.Object
 		if err := r.world.fallingEntityOperation(key.x, key.z, func(_ *Region, ch *Chunk) error {
 			root, _ := ch.anvilRoot.Object()
@@ -283,8 +299,8 @@ func (r *fluidRuntime) recoverFallingSpawns() error {
 				return err
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // Entity ticking has its own ticket predicate: a block-ticking halo is not
@@ -295,13 +311,17 @@ func (w *World) TickFallingEntities(eligible func(int32, int32) bool) error {
 	}
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
-	return w.tickFallingEntitiesLocked(eligible)
+	return w.tickFallingEntitiesLocked(eligible, false)
 }
 
-func (w *World) tickFallingEntitiesLocked(eligible func(int32, int32) bool) error {
+func (w *World) tickFallingEntitiesLocked(eligible func(int32, int32) bool, live bool) error {
 	r := &fluidRuntime{world: w, settings: w.fluidSettings()}
-	if err := r.recoverFallingSpawns(); err != nil {
-		return err
+	var failures []error
+	if err := r.recoverFallingSpawns(live); err != nil {
+		if !live {
+			return err
+		}
+		failures = append(failures, err)
 	}
 	w.fallingEntities.mu.Lock()
 	keys := append([]fallingEntityKey(nil), w.fallingEntities.entries...)
@@ -310,79 +330,89 @@ func (w *World) tickFallingEntitiesLocked(eligible func(int32, int32) bool) erro
 		if !eligible(key.x, key.z) {
 			continue
 		}
-		var entity WorldEntity
-		found := false
-		if err := w.fallingEntityOperation(key.x, key.z, func(_ *Region, ch *Chunk) error {
-			for _, e := range ch.entities {
-				if e.UUID == key.uuid {
-					var err error
-					entity = e
-					entity.Data, err = cloneEntityData(e.Data)
-					found = true
-					return err
-				}
+		if err := w.tickFallingEntity(r, key); err != nil {
+			if !live {
+				return err
 			}
-			return nil
-		}); err != nil {
-			return err
+			failures = append(failures, fmt.Errorf("falling entity %x in chunk %d,%d: %w", key.uuid, key.x, key.z, err))
 		}
-		if !found {
-			continue
-		}
-		motion, _ := entity.Data["Motion"].Elements()
-		if len(motion) != 3 {
-			return fmt.Errorf("invalid falling entity motion")
-		}
-		for _, axis := range []int{0, 2} {
-			speed, ok := motion[axis].Value.(float64)
-			if !ok {
-				return fmt.Errorf("invalid falling motion")
-			}
-			coordinate := int32(math.Floor((entity.Position[axis] + speed) / 16))
-			expected := key.x
-			if axis == 2 {
-				expected = key.z
-			}
-			if coordinate != expected {
-				return fmt.Errorf("falling entity chunk migration is not implemented")
+	}
+	return errors.Join(failures...)
+}
+
+func (w *World) tickFallingEntity(r *fluidRuntime, key fallingEntityKey) error {
+	var entity WorldEntity
+	found := false
+	if err := w.fallingEntityOperation(key.x, key.z, func(_ *Region, ch *Chunk) error {
+		for _, e := range ch.entities {
+			if e.UUID == key.uuid {
+				var err error
+				entity = e
+				entity.Data, err = cloneEntityData(e.Data)
+				found = true
+				return err
 			}
 		}
-		r.fallingDrops = nil
-		data, removed, err := worldgen.TickFallingEntity(r, entity.Data)
-		if err != nil {
-			return err
+		return nil
+	}); err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	motion, _ := entity.Data["Motion"].Elements()
+	if len(motion) != 3 {
+		return fmt.Errorf("invalid falling entity motion")
+	}
+	for _, axis := range []int{0, 2} {
+		speed, ok := motion[axis].Value.(float64)
+		if !ok {
+			return fmt.Errorf("invalid falling motion")
 		}
-		if !removed && len(r.fallingDrops) > 0 {
-			return fmt.Errorf("falling entity requested an item without removal")
+		coordinate := int32(math.Floor((entity.Position[axis] + speed) / 16))
+		expected := key.x
+		if axis == 2 {
+			expected = key.z
 		}
-		next, err := worldEntityFromNBT(data)
-		if err != nil {
-			return err
-		}
-		if int32(math.Floor(next.Position[0]/16)) != key.x || int32(math.Floor(next.Position[2]/16)) != key.z {
+		if coordinate != expected {
 			return fmt.Errorf("falling entity chunk migration is not implemented")
 		}
-		next.Revision = entity.Revision + 1
-		if err := w.fallingEntityOperation(key.x, key.z, func(actor *Region, ch *Chunk) error {
-			entities := make([]WorldEntity, 0, len(ch.entities))
-			for _, e := range ch.entities {
-				if e.UUID != key.uuid {
-					entities = append(entities, e)
-				} else if !removed {
-					entities = append(entities, next)
-				}
+	}
+	r.fallingDrops = nil
+	data, removed, err := worldgen.TickFallingEntity(r, entity.Data)
+	if err != nil {
+		return err
+	}
+	if !removed && len(r.fallingDrops) > 0 {
+		return fmt.Errorf("falling entity requested an item without removal")
+	}
+	next, err := worldEntityFromNBT(data)
+	if err != nil {
+		return err
+	}
+	if int32(math.Floor(next.Position[0]/16)) != key.x || int32(math.Floor(next.Position[2]/16)) != key.z {
+		return fmt.Errorf("falling entity chunk migration is not implemented")
+	}
+	next.Revision = entity.Revision + 1
+	if err := w.fallingEntityOperation(key.x, key.z, func(actor *Region, ch *Chunk) error {
+		entities := make([]WorldEntity, 0, len(ch.entities))
+		for _, e := range ch.entities {
+			if e.UUID != key.uuid {
+				entities = append(entities, e)
+			} else if !removed {
+				entities = append(entities, next)
 			}
-			// One native entity-region replacement commits both source entity
-			// removal and its item. Failed writes retain the airborne snapshot;
-			// retry/reload cannot append a second committed item.
-			entities = append(entities, r.fallingDrops...)
-			return persistFallingEntities(actor, ch, entities)
-		}); err != nil {
-			return err
 		}
-		if removed {
-			w.fallingEntities.remove(key.uuid)
-		}
+		// One native entity-region replacement commits both source entity
+		// removal and its item. Failed writes retain the airborne snapshot;
+		// retry/reload cannot append a second committed item.
+		entities = append(entities, r.fallingDrops...)
+		return persistFallingEntities(actor, ch, entities)
+	}); err != nil {
+		return err
+	}
+	if removed {
+		w.fallingEntities.remove(key.uuid)
 	}
 	return nil
 }

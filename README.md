@@ -80,7 +80,9 @@ current working directory, so launch it from `run/` to use the local save.
 - Initial block updates remove unsupported grass/flowers and both halves of
   double plants. Sand/red sand/gravel enqueue delayed gravity updates. The
   server clock runs scheduled updates and falling entity physics in player-ticketed
-  chunks. Falling entity packet updates and the subsequent item lifecycle remain incomplete.
+  chunks. Clients receive falling block spawn, movement and removal after their
+  terrain is delivered. Block edits schedule nearby water and lava. Falling
+  entity migration between chunks and item pickup/despawn remain incomplete.
 - Chat (system-chat relay), keep-alive heartbeat with mismatch kick
 - Java world save: block edits, world age/daytime/weather, player position,
   inventory and creative flight state survive restart; joining players receive their own

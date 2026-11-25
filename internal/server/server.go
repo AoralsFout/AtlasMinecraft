@@ -56,6 +56,7 @@ type Server struct {
 	entityMu          sync.Mutex // position publication, spawn/despawn and observer movement ordering
 	generatedEntities map[generatedEntityKey]*generatedEntityTracking
 	generatedViews    map[*player.Player]map[generatedEntityKey]int32
+	trackedFalling    int // protected by entityMu
 	auth              onlineAuthentication
 	performance       *performanceMetrics
 	containers        chestSessions

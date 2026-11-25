@@ -44,7 +44,7 @@ func (w *World) TickPlayers(centers map[ChunkPosition]struct{}, distance int32) 
 	tickets := w.simulation.Load()
 	if len(centers) == 0 {
 		w.simulation.Store(nil)
-		return w.tickLocked(TickChunks{})
+		return w.tickLocked(TickChunks{}, true)
 	}
 	if tickets == nil || tickets.distance != distance || !maps.Equal(tickets.centers, centers) {
 		tickets = newSimulationTickets(centers, distance)
@@ -63,7 +63,7 @@ func (w *World) TickPlayers(centers map[ChunkPosition]struct{}, distance int32) 
 			d, ok := tickets.chunks[chunkKey{x, z}]
 			return ok && d <= distance && w.scheduledTicks.neighborhoodLoaded(x, z, 2)
 		},
-	})
+	}, true)
 }
 
 func (w *World) simulationDistance(key chunkKey) (int32, bool) {

@@ -163,17 +163,12 @@ func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
 			delete(desired, key)
 		}
 	}
-	if s.generatedViews == nil {
-		s.generatedViews = make(map[*player.Player]map[generatedEntityKey]int32)
-		s.generatedEntities = make(map[generatedEntityKey]*generatedEntityTracking)
-	}
-	view := s.generatedViews[p]
-	if view == nil {
-		view = make(map[generatedEntityKey]int32)
-		s.generatedViews[p] = view
-	}
+	view := s.generatedEntityView(p)
 	var removed []int32
 	for key, id := range view {
+		if tracking := s.generatedEntities[key]; tracking != nil && tracking.snapshot.Type == fallingBlockEntity {
+			continue // published by the world clock from the live entity index
+		}
 		if _, keep := desired[key]; !keep {
 			removed = append(removed, id)
 			s.releaseGeneratedEntity(key)
@@ -235,6 +230,19 @@ func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
 	}
 }
 
+func (s *Server) generatedEntityView(p *player.Player) map[generatedEntityKey]int32 {
+	if s.generatedViews == nil {
+		s.generatedViews = make(map[*player.Player]map[generatedEntityKey]int32)
+		s.generatedEntities = make(map[generatedEntityKey]*generatedEntityTracking)
+	}
+	view := s.generatedViews[p]
+	if view == nil {
+		view = make(map[generatedEntityKey]int32)
+		s.generatedViews[p] = view
+	}
+	return view
+}
+
 func generatedPassengersPayload(vehicle int32, passengers []int32) []byte {
 	w := proto.NewWriter().VarInt(vehicle).VarInt(int32(len(passengers)))
 	for _, id := range passengers {
@@ -247,6 +255,9 @@ func (s *Server) releaseGeneratedEntity(key generatedEntityKey) {
 	if tracking := s.generatedEntities[key]; tracking != nil {
 		tracking.viewers--
 		if tracking.viewers == 0 {
+			if tracking.snapshot.Type == fallingBlockEntity {
+				s.trackedFalling--
+			}
 			delete(s.generatedEntities, key)
 		}
 	}

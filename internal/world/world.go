@@ -366,13 +366,7 @@ func (w *World) SetBlock(x, y, z int32, state uint32) error {
 	if state > MaxBlockState {
 		return errors.New("unknown 1.21.1 block state")
 	}
-	w.blockUpdateMu.Lock()
-	defer w.blockUpdateMu.Unlock()
-	changed, err := w.editBlock(setBlockMsg{x: x, y: y, z: z, state: state})
-	if err != nil {
-		return err
-	}
-	return w.updateBlockNeighbors(changed)
+	return w.editAndUpdateNeighbors(setBlockMsg{x: x, y: y, z: z, state: state})
 }
 
 func (w *World) Time() (age, dayTime int64) {

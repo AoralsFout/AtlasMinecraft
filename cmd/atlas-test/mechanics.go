@@ -64,6 +64,60 @@ func waitBlockUpdates(fc *proto.FramedConn, want map[[3]int32]uint32, sequence i
 	return acked && len(seen) == len(want)
 }
 
+func waitForFallingSand(fc *proto.FramedConn, sand uint32) (bool, string) {
+	var entityID int32
+	var spawnY float64
+	moved, velocity, landed, removed := false, false, false, false
+	deadline := time.Now().Add(10 * time.Second)
+	for !(moved && velocity && landed && removed) && time.Now().Before(deadline) {
+		id, payload, err := readWithTimeout(fc, 5*time.Second)
+		if err != nil {
+			break
+		}
+		r := proto.NewReader(payload)
+		switch id {
+		case proto.SSpawnEntity:
+			eid, _ := r.VarInt()
+			r.UUID()
+			kind, _ := r.VarInt()
+			x, _ := r.F64()
+			y, _ := r.F64()
+			z, _ := r.F64()
+			for range 3 {
+				r.I8()
+			}
+			state, err := r.VarInt()
+			if err == nil && kind == 40 && uint32(state) == sand && x == 1.5 && z == .5 {
+				entityID, spawnY = eid, y
+			}
+		case proto.SEntityTeleport:
+			eid, _ := r.VarInt()
+			r.F64()
+			y, err := r.F64()
+			moved = moved || err == nil && entityID != 0 && eid == entityID && y < spawnY
+		case proto.SEntityVelocity:
+			eid, _ := r.VarInt()
+			r.I16()
+			vy, err := r.I16()
+			velocity = velocity || err == nil && entityID != 0 && eid == entityID && vy < 0
+		case proto.SEntityDestroy:
+			count, _ := r.VarInt()
+			for i := int32(0); i < count && r.Remaining() > 0; i++ {
+				eid, _ := r.VarInt()
+				removed = removed || entityID != 0 && eid == entityID
+			}
+		case proto.SBlockChange:
+			x, y, z, _ := r.Position()
+			state, err := r.VarInt()
+			landed = landed || err == nil && x == 1 && y == 201 && z == 0 && uint32(state) == sand
+		case proto.SKeepAlive:
+			value, _ := r.I64()
+			fc.WritePacket(proto.CKeepAlive, proto.NewWriter().I64(value).Payload())
+		}
+	}
+	return moved && velocity && landed && removed, fmt.Sprintf("spawn=%t move=%t velocity=%t land=%t remove=%t", entityID != 0, moved, velocity, landed, removed)
+}
+
 func checkMechanics(fc *proto.FramedConn) {
 	stone := sendCreativeBlock(fc, "stone")
 	sendPlace(fc, 0, 200, 0, 3, 8)
@@ -114,7 +168,19 @@ func checkMechanics(fc *proto.FramedConn) {
 	}
 	fc.WritePacket(proto.CChatCommand, proto.NewWriter().String(fmt.Sprintf("setblock 1 210 0 %d", sand)).Payload())
 	check("sand placement update", waitBlockUpdates(fc, map[[3]int32]uint32{{1, 210, 0}: sand}, -1), "")
-	check("sand lands in the player's simulation range", waitBlockUpdates(fc, map[[3]int32]uint32{{1, 201, 0}: sand}, -1), "")
+	falling, detail := waitForFallingSand(fc, sand)
+	check("falling sand spawns, moves, lands and despawns", falling, detail)
+	source, err := blockstate.BlockStateID("minecraft:water", nil)
+	if err != nil {
+		panic(err)
+	}
+	flowing, err := blockstate.BlockStateID("minecraft:water", map[string]string{"level": "8"})
+	if err != nil {
+		panic(err)
+	}
+	fc.WritePacket(proto.CChatCommand, proto.NewWriter().String("setblock 4 240 0 minecraft:water").Payload())
+	check("edited water source flows on the world clock", waitBlockUpdates(fc, map[[3]int32]uint32{{4, 240, 0}: source, {4, 239, 0}: flowing}, -1), "")
+	checkCommand(fc, "setblock 4 240 0 air", "Set block at 4 240 0")
 	checkCommand(fc, "setblock 2 200 0 grass_block", "Set block at 2 200 0")
 	lower := sendCreativeBlock(fc, "tall_grass")
 	upper, err := blockstate.BlockStateID("minecraft:tall_grass", map[string]string{"half": "upper"})

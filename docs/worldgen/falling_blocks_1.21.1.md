@@ -134,10 +134,11 @@ lifecycle after creation is still unfinished. Other-entity collision, contextual
 offset collision shapes, slime/bed bounce, honey/web/bubble interactions,
 portals and other inside-block effects still need native probes and ports.
 
-The spawn intent is recoverable, but landing block writes and entity persistence
-are not yet one recoverable transaction. Default server clock/ticket integration,
-dynamic client spawn/movement packets, broader generation-template update
-coverage and arbitrary mixed activation queues remain unfinished. Version 17
+The spawn intent is recoverable. A recoverable transaction for landing block
+writes and entity persistence is still needed. The server clock executes
+player-ticketed falling blocks and publishes spawn, movement and removal
+packets. Broader generation-template updates and mixed activation queues
+remain unfinished. Version 17
 adds [shared template delayed callbacks](template_updates_1.21.1.md), with
 original edge/finalization and production recorder checks. The two ocean
 samples and the closed arenas are bounded checks, not a claim of exact generation

@@ -53,16 +53,39 @@ func (w *World) editBlock(msg setBlockMsg) ([]BlockPosition, error) {
 	}
 }
 
+// Cold terrain can take several seconds to prepare. Keep the world clock
+// free while it loads, then compare and edit the current state in the actor.
+func (w *World) editAndUpdateNeighbors(msg setBlockMsg) error {
+	msg.loadedOnly = true
+	for {
+		w.blockUpdateMu.Lock()
+		changed, err := w.editBlock(msg)
+		if !errors.Is(err, ErrChunkNotLoaded) {
+			if err == nil {
+				err = w.updateBlockNeighbors(changed)
+			}
+			w.blockUpdateMu.Unlock()
+			return err
+		}
+		w.blockUpdateMu.Unlock()
+		if err := w.ensureChunk(context.Background(), msg.x>>4, msg.z>>4); err != nil {
+			return err
+		}
+	}
+}
+
 // Only loaded blocks participate. Propagation runs outside the actor, so
 // attachments across region boundaries cannot deadlock another region.
 func (w *World) updateBlockNeighbors(changed []BlockPosition) error {
 	queue := append([]BlockPosition(nil), changed...)
+	runtime := &fluidRuntime{world: w, settings: w.fluidSettings()}
 	for step := 0; len(queue) > 0; step++ {
 		if step >= 4096 {
 			return errors.New("block neighbor update limit exceeded")
 		}
 		p := queue[0]
 		queue = queue[1:]
+		var changedState worldgen.SurfaceBlockState
 		candidates := []BlockPosition{p}
 		for face := range directionOffsets {
 			candidates = append(candidates, neighbor(p, face))
@@ -83,14 +106,37 @@ func (w *World) updateBlockNeighbors(changed []BlockPosition) error {
 				return err
 			}
 			updated := states[0]
-			if worldgen.IsFallingBlock(state.Name) || worldgen.IsBrushableBlock(state.Name) {
-				runtime := &fluidRuntime{world: w, settings: w.fluidSettings()}
-				position := worldgen.FeaturePosition{X: target.X, Y: target.Y, Z: target.Z}
-				s := worldgen.SurfaceBlockState{Name: state.Name, Properties: state.Properties}
+			position := worldgen.FeaturePosition(target)
+			s := worldgen.SurfaceBlockState{Name: state.Name, Properties: state.Properties}
+			if target == p {
+				changedState = s
+			}
+			if liquidBlock(s) {
+				err = worldgen.NotifyLiquidBlock(runtime, position, s, runtime.settings)
+				if errors.Is(err, ErrChunkNotLoaded) {
+					// Mixing may inspect unloaded neighbors. Keep the liquid due
+					// for simulation once its neighborhood is ready.
+					err = runtime.ScheduleFluidUpdate(position)
+				}
+				if err != nil {
+					return err
+				}
+				continue
+			}
+			if s.Properties["waterlogged"] == "true" {
+				if err := runtime.ScheduleFluidUpdate(position); err != nil {
+					return err
+				}
+			}
+			if worldgen.IsFallingBlock(state.Name) || worldgen.IsBrushableBlock(state.Name) ||
+				state.Name == "minecraft:bubble_column" || state.Name == "minecraft:magma_block" || state.Name == "minecraft:soul_sand" {
 				if target == p {
 					err = worldgen.NotifyFallingBlockPlacement(runtime, position, s)
 					if err == nil {
 						err = worldgen.NotifyBrushableBlockPlacement(runtime, position, s)
+					}
+					if err == nil {
+						err = worldgen.NotifyBubbleBlockPlacement(runtime, position, s)
 					}
 				} else {
 					face := 0
@@ -101,7 +147,7 @@ func (w *World) updateBlockNeighbors(changed []BlockPosition) error {
 						}
 					}
 					var after worldgen.SurfaceBlockState
-					after, err = worldgen.UpdateFluidNeighborShape(runtime, position, s, face, worldgen.SurfaceBlockState{})
+					after, err = worldgen.UpdateFluidNeighborShape(runtime, position, s, face, changedState)
 					if err == nil {
 						updated, err = BlockStateID(after.Name, after.Properties)
 					}

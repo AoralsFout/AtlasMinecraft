@@ -80,13 +80,7 @@ func (w *World) TryPlaceBlock(p BlockPosition, expected, state uint32, upper *ui
 	if p.Y < w.MinBuildHeight() || p.Y >= w.MaxBuildHeight() || state > MaxBlockState || upper != nil && (p.Y+1 >= w.MaxBuildHeight() || *upper > MaxBlockState) {
 		return errors.New("invalid block placement")
 	}
-	w.blockUpdateMu.Lock()
-	defer w.blockUpdateMu.Unlock()
-	changed, err := w.editBlock(setBlockMsg{x: p.X, y: p.Y, z: p.Z, state: state, expected: &expected, upper: upper})
-	if err != nil {
-		return err
-	}
-	return w.updateBlockNeighbors(changed)
+	return w.editAndUpdateNeighbors(setBlockMsg{x: p.X, y: p.Y, z: p.Z, state: state, expected: &expected, upper: upper})
 }
 
 // The legacy player-edit path still validates supported plants in its column.
@@ -180,9 +174,11 @@ func (r *Region) applyColumnEdit(ch *Chunk, msg setBlockMsg) error {
 		return nil
 	}
 	ch.lightStale = true
-	if err := r.world.store.vanilla.persistChunk(ch); err != nil {
-		rollback()
-		return fmt.Errorf("block update save failed: %w", err)
+	if !msg.deferSave {
+		if err := r.world.store.vanilla.persistChunk(ch); err != nil {
+			rollback()
+			return fmt.Errorf("block update save failed: %w", err)
+		}
 	}
 	var lightUpdates map[light.Position]*light.Data
 	if r.world.lighting != nil {
@@ -199,8 +195,10 @@ func (r *Region) applyColumnEdit(ch *Chunk, msg setBlockMsg) error {
 		r.applyLight(ch, updates[position], false)
 		ch.lights = r.world.lighting.Snapshot(position)
 		ch.lightStale = false
-		if err := r.world.store.vanilla.persistChunk(ch); err != nil {
-			return fmt.Errorf("block saved but lighting save failed: %w", err)
+		if !msg.deferSave {
+			if err := r.world.store.vanilla.persistChunk(ch); err != nil {
+				return fmt.Errorf("block saved but lighting save failed: %w", err)
+			}
 		}
 		lightUpdates = updates
 	}

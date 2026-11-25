@@ -86,6 +86,7 @@ const (
 	SUpdateViewDistance = 0x55
 	SSpawnPosition      = 0x56
 	SEntityMetadata     = 0x58
+	SEntityVelocity     = 0x5A
 	SUpdateTime         = 0x64
 	SSoundEffect        = 0x68
 	SSystemChat         = 0x6C

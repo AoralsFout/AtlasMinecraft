@@ -77,8 +77,8 @@ settling. Leaves now update through explicit runtime block ticks. The original
 probe checks 2,824 trees and 402,367 ordered requests; real frozen saves match
 47 leaves and 41 pending leaf requests, while both complete ocean arrays still
 match after 100 ticks. See [generation updates](fluid_simulation_1.21.1.md).
-Other generation block-request sources, arbitrary mixed activation queues,
-specialized falling-entity behavior and the default server clock remain incomplete.
+Other generation block-request sources, arbitrary mixed activation queues and
+specialized falling-entity behavior remain incomplete.
 
 Generation version 13 adds ocean monuments and woodland mansions to normal
 Overworld generation, including their layout, block placement and persistent
@@ -90,9 +90,9 @@ parity or entity AI.
 Version 13 also preserves the generation-only WG heightmaps after CARVERS.
 The [final ocean comparison](final_ocean_reference_1.21.1.md) documents the
 original-server snapshots and the 158 generation differences this fixes.
-Explicit world fluid execution now resolves the remaining ten lava-flow blocks;
-both complete final arrays match after 100 game ticks. This path is not yet
-enabled by the default server clock, and intermediate tick parity is unproven.
+Explicit world fluid execution resolves the remaining ten lava-flow blocks.
+Both complete final arrays match after 100 game ticks. The server clock also
+runs fluid ticks under player tickets. Intermediate tick parity is unproven.
 
 Generation version 12 added stronghold ring starts, all twelve piece types and
 normal chunk/Anvil integration. It also adds existing armor-stand equipment
@@ -403,10 +403,10 @@ join starts, terrain, blocks and canonical saved references in the runtime
 pipeline. Nether fortresses, Nether fossils and Nether ruined portals have
 dimension generation, references and Anvil reopen checks. End cities include
 all 20 templates, rotated/clipped block placement, loot requests, Shulkers and
-Elytra item frames. Leaves and bubble columns update through explicit runtime
-scheduled execution after generation. All 29 Overworld structure definitions
+Elytra item frames. Leaves and bubble columns update through runtime scheduled
+execution after generation. All 29 Overworld structure definitions
 have start/placement implementations, with coverage boundaries in their guides.
-Full scheduled-block behavior, random leaf decay and default ticking tickets
+Full scheduled-block behavior, random leaf decay and additional ticket sources
 remain incomplete.
 All 37 Nether and 5 End feature plans and their three-dimension
 runtime access are integrated. Generated crystals and supported structure NPCs

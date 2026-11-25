@@ -174,15 +174,8 @@ func (r *fluidRuntime) finishKelpBreak(key string, entry nbt.Object) error {
 	return r.world.fallingEntityOperation(p.X>>4, p.Z>>4, func(actor *Region, ch *Chunk) error { return updateKelpJournal(actor, ch, key, nil) })
 }
 
-func (r *fluidRuntime) recoverKelpBreaks() error {
-	o := r.world.scheduledTicks
-	o.mu.Lock()
-	keys := make([]chunkKey, 0, len(o.loadOrder))
-	for _, ch := range o.loadOrder {
-		keys = append(keys, chunkKey{ch.x, ch.z})
-	}
-	o.mu.Unlock()
-	for _, key := range keys {
+func (r *fluidRuntime) recoverKelpBreaks(live bool) error {
+	return r.recoverJournals(false, live, func(key chunkKey) error {
 		var pending nbt.Object
 		if err := r.world.fallingEntityOperation(key.x, key.z, func(_ *Region, ch *Chunk) error {
 			root, _ := ch.anvilRoot.Object()
@@ -206,6 +199,6 @@ func (r *fluidRuntime) recoverKelpBreaks() error {
 				return err
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }

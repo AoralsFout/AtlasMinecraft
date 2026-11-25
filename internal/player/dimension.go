@@ -173,6 +173,22 @@ func (sink *WorldSink) SendPacket(id int32, payload []byte) {
 	}
 }
 
+// SendPacketsInChunk orders entity packets with chunk delivery and pruning.
+func (sink *WorldSink) SendPacketsInChunk(cx, cz int32, packets ...OutPacket) bool {
+	p := sink.player
+	p.chunkSendMu.Lock()
+	defer p.chunkSendMu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, sent := p.sentChunks[[2]int32{cx, cz}]; !sent || !sink.currentLocked() {
+		return false
+	}
+	for _, packet := range packets {
+		p.SendPacket(packet.ID, packet.Payload)
+	}
+	return sink.currentLocked()
+}
+
 func (sink *WorldSink) SendChunkData(payload []byte) {
 	p := sink.player
 	p.chunkSendMu.Lock()

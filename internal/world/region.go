@@ -115,6 +115,8 @@ type setBlockMsg struct {
 	upper         *uint32
 	upperExpected *uint32
 	raw           bool // level mutation: callbacks run outside the region actor
+	deferSave     bool // derived runtime state is persisted by the next chunk save
+	loadedOnly    bool // return a miss so the caller can prepare terrain outside its tick lock
 	flags         int32
 	changed       chan []BlockPosition
 	result        chan error
@@ -363,6 +365,10 @@ func (r *Region) run() {
 			}
 			ch := r.chunks[k]
 			if ch == nil {
+				if msg.loadedOnly {
+					msg.result <- ErrChunkNotLoaded
+					continue
+				}
 				r.pendingEdits[k] = append(r.pendingEdits[k], msg)
 				r.queueGeneration(k)
 				continue

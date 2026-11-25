@@ -10,8 +10,8 @@ their block/fluid queues and retain them through actor saves and unloads.
 block writes, liquid callbacks and nested neighbor updates. `World.TickFluids`
 remains available for an isolated fluid phase. Both final ocean chunks now match all 98,304 block states after 100
 explicit game ticks. No fixed number of ticks is hidden inside terrain generation.
-The default server clock is not yet connected: general block callbacks and the
-server's ticket policy still need coverage.
+The server clock runs these phases within player simulation tickets. General
+block callbacks and other ticket sources have further compatibility work.
 
 ## Sources and scope
 
@@ -148,7 +148,7 @@ sequence is established by `ChunkStatusTasks.full`,
 neighborhood; process activation positions; then unpack relative delays at the
 current game time. The owner implements that sequence with an explicit
 eligibility predicate and activation callback. `World.TickFluids` supplies the
-live activation callback; the default server clock does not call it yet.
+explicit activation path, and the server clock supplies player-ticket eligibility.
 
 Queue state has a separate short mutex. The outer `blockUpdateMu` serializes
 execution, public edits, world saves and unloads; queue callbacks release the
@@ -209,7 +209,7 @@ registered fluid container callbacks are supported. Immediate plant shape update
 use runtime survival, attachment and light checks; other shapes reuse the existing
 structure-placement handlers. This is not a complete block tick engine.
 Non-liquid neighbor callbacks, indirect shape updates, game-event listeners,
-block/entity ticks, item drops and the server's ticking-ticket policy remain incomplete.
+block/entity ticks and item drops remain incomplete.
 Runtime randomness is an independent legacy stream, not the terrain seed.
 
 The [actual ocean regression](final_ocean_reference_1.21.1.md) now runs at the
@@ -376,9 +376,10 @@ The extracted handler inventory covers all 1,060 registered block types: 920
 inherit an empty `BlockBehaviour.tick`, ten use `LeavesBlock.tick`, three use
 bubble/magma/soul-sand handlers, and 127 still need implementation. A scheduled
 request whose block was replaced is ignored.
-A live unsupported handler returns `ErrUnsupportedScheduledBlock`; the failed
-and unexecuted requests remain queued, and the fluid phase does not run after
-that error. This API is explicit and is not enabled in the default server clock.
+In explicit reference execution, `ErrUnsupportedScheduledBlock` leaves the
+failed and unexecuted requests queued and ends the pass. The server clock
+reports the failed request, retries it after a delay and continues the other
+scheduled updates and falling entities.
 
 Leaf shape updates request water first when waterlogged, then a block tick with
 delay one unless both the neighbor and existing leaf distance prove the leaf
@@ -423,8 +424,8 @@ frozen queues also contain 77 sand/gravel activation requests. The subsequent
 activation requests in these samples and ordinary falling entity execution.
 Version 16 preserves [PostProcessing order and duplicates](postprocessing_1.21.1.md)
 through generation and storage. Arbitrary mixed activation queues, specialized
-falling entities, other delayed families, random leaf decay and default clock/ticket
-integration remain. See [bubble lifecycle checks](bubble_columns_1.21.1.md).
+falling entities, other delayed families and random leaf decay remain.
+See [bubble lifecycle checks](bubble_columns_1.21.1.md).
 
 ```powershell
 python tools/worldgen/build_block_tick_probe.py --check

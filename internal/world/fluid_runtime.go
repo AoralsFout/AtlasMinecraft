@@ -7,6 +7,7 @@ import (
 	"atlas/internal/worldgen"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -33,10 +34,10 @@ func (w *World) tickScheduled(eligible func(int32, int32) bool, blocks bool) err
 	}
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
-	return w.tickScheduledLocked(eligible, blocks)
+	return w.tickScheduledLocked(eligible, blocks, false)
 }
 
-func (w *World) tickScheduledLocked(eligible func(int32, int32) bool, blocks bool) error {
+func (w *World) tickScheduledLocked(eligible func(int32, int32) bool, blocks, live bool) error {
 	select {
 	case <-w.done:
 		return ErrWorldClosed
@@ -45,24 +46,32 @@ func (w *World) tickScheduledLocked(eligible func(int32, int32) bool, blocks boo
 	if err := w.ensureTickRandom(); err != nil {
 		return err
 	}
-	r := &fluidRuntime{world: w, settings: w.fluidSettings()}
-	if err := r.recoverFallingSpawns(); err != nil {
-		return err
-	}
-	if err := r.recoverKelpBreaks(); err != nil {
-		return err
-	}
-	if err := w.scheduledTicks.activate(eligible, r.postProcess); err != nil {
-		return err
-	}
-	if blocks {
-		if err := w.scheduledTicks.tickBlocks(65536, eligible, func(t tickqueue.Scheduled[string]) error {
-			return worldgen.TickScheduledBlock(r, worldgen.FeaturePosition{X: t.Position.X, Y: t.Position.Y, Z: t.Position.Z}, t.Type)
-		}); err != nil {
-			return err
+	r := &fluidRuntime{world: w, settings: w.fluidSettings(), deferLeafSaves: live}
+	o := w.scheduledTicks
+	var failures []error
+	for _, prepare := range []func() error{
+		func() error { return r.recoverFallingSpawns(live) },
+		func() error { return r.recoverKelpBreaks(live) },
+		func() error { return o.activateChunks(eligible, r.postProcess, live) },
+	} {
+		if err := prepare(); err != nil {
+			if !live {
+				return err
+			}
+			failures = append(failures, err)
 		}
 	}
-	return w.scheduledTicks.tick(65536, eligible, func(t tickqueue.Scheduled[worldgen.FluidType]) error {
+	if blocks {
+		if err := tickOwnedQueue(o, o.blocks, &o.currentBlock, "block", 65536, eligible, func(t tickqueue.Scheduled[string]) error {
+			return worldgen.TickScheduledBlock(r, worldgen.FeaturePosition{X: t.Position.X, Y: t.Position.Y, Z: t.Position.Z}, t.Type)
+		}, live); err != nil {
+			if !live {
+				return err
+			}
+			failures = append(failures, err)
+		}
+	}
+	if err := tickOwnedQueue(o, o.level, &o.current, "fluid", 65536, eligible, func(t tickqueue.Scheduled[worldgen.FluidType]) error {
 		p := worldgen.FeaturePosition{X: t.Position.X, Y: t.Position.Y, Z: t.Position.Z}
 		state, err := r.BlockAt(p)
 		if err != nil {
@@ -76,7 +85,23 @@ func (w *World) tickScheduledLocked(eligible func(int32, int32) bool, blocks boo
 			return nil
 		} // exact registered type, not family
 		return worldgen.TickFluid(r, p, r.settings, w.tickRandom)
-	})
+	}, live); err != nil {
+		failures = append(failures, err)
+	}
+	return errors.Join(failures...)
+}
+
+func (r *fluidRuntime) recoverJournals(falling, live bool, repair func(chunkKey) error) error {
+	var failures []error
+	for _, key := range r.world.scheduledTicks.recoveryChunks(falling) {
+		if err := repair(key); err != nil {
+			if !live {
+				return err
+			}
+			failures = append(failures, fmt.Errorf("recover chunk %d,%d: %w", key.x, key.z, err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 // Caller holds blockUpdateMu. Runtime randomness is independent of terrain;
@@ -113,11 +138,12 @@ func (w *World) fluidSettings() worldgen.FluidSettings {
 }
 
 type fluidRuntime struct {
-	world        *World
-	settings     worldgen.FluidSettings
-	stack, added []*fluidNeighborUpdate
-	chained      int
-	fallingDrops []WorldEntity // staged until the falling entity's atomic save
+	world          *World
+	settings       worldgen.FluidSettings
+	stack, added   []*fluidNeighborUpdate
+	chained        int
+	fallingDrops   []WorldEntity // staged until the falling entity's atomic save
+	deferLeafSaves bool
 }
 type fluidNeighborUpdate struct {
 	position     worldgen.FeaturePosition
@@ -205,7 +231,13 @@ func (r *fluidRuntime) set(p worldgen.FeaturePosition, s worldgen.SurfaceBlockSt
 	if old == id {
 		return nil
 	}
-	if _, err := r.world.editBlock(setBlockMsg{x: p.X, y: p.Y, z: p.Z, state: id, expected: &old, raw: true, flags: flags}); err != nil {
+	leafDistanceOnly := before.Name == s.Name && strings.HasSuffix(s.Name, "_leaves") &&
+		before.Properties["distance"] != s.Properties["distance"] &&
+		before.Properties["persistent"] == s.Properties["persistent"] && before.Properties["waterlogged"] == s.Properties["waterlogged"]
+	if _, err := r.world.editBlock(setBlockMsg{
+		x: p.X, y: p.Y, z: p.Z, state: id, expected: &old, raw: true, flags: flags,
+		deferSave: r.deferLeafSaves && leafDistanceOnly,
+	}); err != nil {
 		return err
 	}
 	// LevelChunk calls onPlace even for another state of the same liquid.

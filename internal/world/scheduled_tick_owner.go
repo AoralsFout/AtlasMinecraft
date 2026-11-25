@@ -42,7 +42,12 @@ type chunkScheduledTicks struct {
 	postSections            int
 	revision, savedRevision uint64
 	savedTime               int64
+	activationRetry         int64
+	fallingRecovery         bool
+	kelpRecovery            bool
 }
+
+const simulationRetryDelay = 20 // game ticks between retries of a failed live callback
 
 func newScheduledTickOwner(time int64) *scheduledTickOwner {
 	return &scheduledTickOwner{level: tickqueue.NewLevel[worldgen.FluidType](), blocks: tickqueue.NewLevel[string](), chunks: make(map[uint64]*chunkScheduledTicks), now: time}
@@ -75,6 +80,7 @@ func (o *scheduledTickOwner) register(c *Chunk) *chunkScheduledTicks {
 	root, _ := c.anvilRoot.Object()
 	h := &chunkScheduledTicks{owner: o, x: c.cx, z: c.cz, queue: tickqueue.NewChunk(tickqueue.DecodeSavedNBT(root["fluid_ticks"], c.cx, c.cz, parseScheduledFluid))}
 	h.blocks = tickqueue.NewChunk(tickqueue.DecodeSavedNBT(root["block_ticks"], c.cx, c.cz, parseScheduledBlock))
+	h.fallingRecovery, h.kelpRecovery = recoveryJournals(root)
 	sections, _ := root["PostProcessing"].Elements()
 	h.postSections = len(sections)
 	for section, list := range sections {
@@ -98,6 +104,24 @@ func (o *scheduledTickOwner) register(c *Chunk) *chunkScheduledTicks {
 	o.level.Add(c.cx, c.cz, h.queue)
 	o.blocks.Add(c.cx, c.cz, h.blocks)
 	return h
+}
+
+func recoveryJournals(root nbt.Object) (falling, kelp bool) {
+	entries, _ := root[fallingJournal].Elements()
+	items, _ := root.Object(kelpBreakJournal)
+	return len(entries) != 0, len(items) != 0
+}
+
+func (o *scheduledTickOwner) recoveryChunks(falling bool) []chunkKey {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var keys []chunkKey
+	for _, h := range o.loadOrder {
+		if falling && h.fallingRecovery || !falling && h.kelpRecovery {
+			keys = append(keys, chunkKey{h.x, h.z})
+		}
+	}
+	return keys
 }
 
 func (h *chunkScheduledTicks) snapshot() (nbt.Tag, nbt.Tag, nbt.Tag, uint64, int64) {
@@ -230,18 +254,32 @@ func (o *scheduledTickOwner) neighborhoodLoadedLocked(cx, cz, radius int32) bool
 // postProcessGeneration, then ServerLevel.startTickingChunk/unpackTicks.
 // The caller holds blockUpdateMu; callbacks may safely use region messages.
 func (o *scheduledTickOwner) activate(eligible func(int32, int32) bool, process func(worldgen.FeaturePosition) error) error {
+	return o.activateChunks(eligible, process, false)
+}
+
+func (o *scheduledTickOwner) activateChunks(eligible func(int32, int32) bool, process func(worldgen.FeaturePosition) error, live bool) error {
 	o.mu.Lock()
 	var pending []*chunkScheduledTicks
 	for _, h := range o.loadOrder {
-		if !h.active && eligible(h.x, h.z) && o.ready(h) {
+		if !h.active && (!live || h.activationRetry <= o.now) && eligible(h.x, h.z) && o.ready(h) {
 			pending = append(pending, h)
 		}
 	}
 	o.mu.Unlock()
+	var failures []error
+chunk:
 	for _, h := range pending {
 		for h.postIndex < len(h.post) {
 			if err := process(h.post[h.postIndex]); err != nil {
-				return fmt.Errorf("activate scheduled chunk %d,%d: %w", h.x, h.z, err)
+				failure := fmt.Errorf("activate scheduled chunk %d,%d: %w", h.x, h.z, err)
+				if !live {
+					return failure
+				}
+				failures = append(failures, failure)
+				o.mu.Lock()
+				h.activationRetry = o.now + simulationRetryDelay
+				o.mu.Unlock()
+				continue chunk
 			}
 			// postIndex is not read by actors/snapshot; only the serialized
 			// activation pass owns it until the active bit is published.
@@ -254,26 +292,26 @@ func (o *scheduledTickOwner) activate(eligible func(int32, int32) bool, process 
 		h.revision++
 		o.mu.Unlock()
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 func (o *scheduledTickOwner) tick(limit int, eligible func(int32, int32) bool, run func(tickqueue.Scheduled[worldgen.FluidType]) error) error {
-	return tickOwnedQueue(o, o.level, &o.current, "fluid", limit, eligible, run)
+	return tickOwnedQueue(o, o.level, &o.current, "fluid", limit, eligible, run, false)
 }
 
 func (o *scheduledTickOwner) tickBlocks(limit int, eligible func(int32, int32) bool, run func(tickqueue.Scheduled[string]) error) error {
-	return tickOwnedQueue(o, o.blocks, &o.currentBlock, "block", limit, eligible, run)
+	return tickOwnedQueue(o, o.blocks, &o.currentBlock, "block", limit, eligible, run, false)
 }
 
-func tickOwnedQueue[T comparable](o *scheduledTickOwner, level *tickqueue.Level[T], current **tickqueue.Scheduled[T], kind string, limit int, eligible func(int32, int32) bool, run func(tickqueue.Scheduled[T]) error) error {
+func tickOwnedQueue[T comparable](o *scheduledTickOwner, level *tickqueue.Level[T], current **tickqueue.Scheduled[T], kind string, limit int, eligible func(int32, int32) bool, run func(tickqueue.Scheduled[T]) error, live bool) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	var failure error
+	var failures []error
 	level.Tick(o.now, limit, func(x, z int32) bool {
 		h := o.chunks[tickqueue.ChunkKey(x, z)]
 		return h != nil && h.active && o.ready(h) && eligible(x, z)
 	}, func(t tickqueue.Scheduled[T]) {
-		if failure != nil {
+		if len(failures) != 0 && !live {
 			level.Schedule(t)
 			o.chunks[tickqueue.ChunkKey(t.Position.X>>4, t.Position.Z>>4)].revision++
 			return
@@ -294,9 +332,13 @@ func tickOwnedQueue[T comparable](o *scheduledTickOwner, level *tickqueue.Level[
 		*current = nil
 		h.revision++
 		if err != nil {
+			if live {
+				t.Trigger = o.now + simulationRetryDelay
+				err = fmt.Errorf("%s tick %v at %d,%d,%d: %w", kind, t.Type, t.Position.X, t.Position.Y, t.Position.Z, err)
+			}
 			level.Schedule(t)
-			failure = errors.Join(failure, err)
+			failures = append(failures, err)
 		}
 	})
-	return failure
+	return errors.Join(failures...)
 }

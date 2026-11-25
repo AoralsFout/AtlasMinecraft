@@ -12,7 +12,8 @@ func (s *Server) TickWorlds() error {
 	s.worldClockMu.Lock()
 	defer s.worldClockMu.Unlock()
 	centers := make(map[string]map[world.ChunkPosition]struct{})
-	for _, p := range s.Hub.Snapshot() {
+	players := s.Hub.Snapshot()
+	for _, p := range players {
 		dimension, x, z, active := p.SimulationCenter()
 		if active {
 			if centers[dimension] == nil {
@@ -27,6 +28,7 @@ func (s *Server) TickWorlds() error {
 		if err := w.TickPlayers(centers[name], int32(s.Cfg.SimulationDistance)); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
+		s.publishFallingEntities(w, players)
 	}
 	return errors.Join(errs...)
 }

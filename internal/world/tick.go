@@ -1,6 +1,9 @@
 package world
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // TickChunks selects which loaded chunks can run each phase. Predicates are
 // read-only and cannot call chunk actors. Blocks runs under the queue lock.
@@ -16,25 +19,29 @@ type TickChunks struct {
 func (w *World) Tick(chunks TickChunks) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
-	return w.tickLocked(chunks)
+	return w.tickLocked(chunks, false)
 }
 
-func (w *World) tickLocked(chunks TickChunks) error {
+func (w *World) tickLocked(chunks TickChunks, live bool) error {
 	select {
 	case <-w.done:
 		return ErrWorldClosed
 	default:
 	}
 	w.advanceTimeLocked(1)
+	var failure error
 	if chunks.Blocks != nil {
-		if err := w.tickScheduledLocked(chunks.Blocks, true); err != nil {
-			return fmt.Errorf("scheduled updates: %w", err)
+		if err := w.tickScheduledLocked(chunks.Blocks, true, live); err != nil {
+			failure = fmt.Errorf("scheduled updates: %w", err)
+			if !live {
+				return failure
+			}
 		}
 	}
 	if chunks.Entities != nil {
-		if err := w.tickFallingEntitiesLocked(chunks.Entities); err != nil {
-			return fmt.Errorf("falling entities: %w", err)
+		if err := w.tickFallingEntitiesLocked(chunks.Entities, live); err != nil {
+			return errors.Join(failure, fmt.Errorf("falling entities: %w", err))
 		}
 	}
-	return nil
+	return failure
 }
