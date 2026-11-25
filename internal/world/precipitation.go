@@ -12,15 +12,8 @@ func (r *fluidRuntime) tickPrecipitation(p worldgen.FeaturePosition, raining boo
 	var groundID, surfaceID uint32
 	err := w.fallingEntityOperation(p.X>>4, p.Z>>4, func(_ *Region, c *Chunk) error {
 		x, z := int(p.X&15), int(p.Z&15)
-		p.Y = c.Height(x, z)
-		for p.Y > c.minY {
-			id := c.GetBlock(x, z, p.Y-1)
-			if stateFlag(motionFlags, id) {
-				groundID = id
-				break
-			}
-			p.Y--
-		}
+		p.Y = c.motionBlockingHeight(x, z)
+		groundID = c.GetBlock(x, z, p.Y-1)
 		if p.Y < c.maxY {
 			surfaceID = c.GetBlock(x, z, p.Y)
 		}

@@ -174,8 +174,8 @@ func (r *Region) applyColumnEdit(ch *Chunk, msg setBlockMsg) error {
 		return nil
 	}
 	ch.lightStale = true
-	if msg.buttonRelease != "" {
-		if err := r.world.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: msg.x, Y: msg.y, Z: msg.z}, msg.buttonRelease, 20, 0); err != nil {
+	if msg.releaseBlock != "" {
+		if err := r.world.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: msg.x, Y: msg.y, Z: msg.z}, msg.releaseBlock, msg.releaseDelay, 0); err != nil {
 			rollback()
 			return err
 		}
@@ -183,7 +183,7 @@ func (r *Region) applyColumnEdit(ch *Chunk, msg setBlockMsg) error {
 	if !msg.deferSave {
 		if err := r.world.store.vanilla.persistChunk(ch); err != nil {
 			// Keep the press and its release paired for the next save attempt.
-			if msg.buttonRelease == "" {
+			if msg.releaseBlock == "" {
 				rollback()
 			}
 			return fmt.Errorf("block update save failed: %w", err)

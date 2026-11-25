@@ -166,7 +166,7 @@ func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
 	view := s.generatedEntityView(p)
 	var removed []int32
 	for key, id := range view {
-		if tracking := s.generatedEntities[key]; tracking != nil && tracking.snapshot.Type == fallingBlockEntity {
+		if tracking := s.generatedEntities[key]; tracking != nil && tickingEntityType(tracking.snapshot.Type) {
 			continue // published by the world clock from the live entity index
 		}
 		if _, keep := desired[key]; !keep {
@@ -255,8 +255,8 @@ func (s *Server) releaseGeneratedEntity(key generatedEntityKey) {
 	if tracking := s.generatedEntities[key]; tracking != nil {
 		tracking.viewers--
 		if tracking.viewers == 0 {
-			if tracking.snapshot.Type == fallingBlockEntity {
-				s.trackedFalling--
+			if tickingEntityType(tracking.snapshot.Type) {
+				s.trackedTicking--
 			}
 			delete(s.generatedEntities, key)
 		}

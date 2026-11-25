@@ -53,7 +53,7 @@ func (w *World) PressStoneButton(p BlockPosition, expected uint32) error {
 	}
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
-	changed, err := w.editBlock(setBlockMsg{x: p.X, y: p.Y, z: p.Z, expected: &expected, state: pressed, loadedOnly: true, buttonRelease: state.Name})
+	changed, err := w.editBlock(setBlockMsg{x: p.X, y: p.Y, z: p.Z, expected: &expected, state: pressed, loadedOnly: true, releaseBlock: state.Name, releaseDelay: 20})
 	if err != nil {
 		return err
 	}

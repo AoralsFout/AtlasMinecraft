@@ -4,8 +4,10 @@ import (
 	"atlas/internal/player"
 	"atlas/internal/proto"
 	"atlas/internal/world"
+	"cmp"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // TickWorlds advances all dimensions using one snapshot of online players.
@@ -15,10 +17,11 @@ func (s *Server) TickWorlds() error {
 	defer s.worldClockMu.Unlock()
 	byDimension := make(map[string][]world.SimulationPlayer)
 	players := s.Hub.Snapshot()
+	slices.SortFunc(players, func(a, b *player.Player) int { return cmp.Compare(a.EID, b.EID) })
 	for _, p := range players {
-		dimension, x, z, spectator, active := p.SimulationPosition()
+		dimension, x, y, z, spectator, active := p.SimulationPosition3D()
 		if active {
-			byDimension[dimension] = append(byDimension[dimension], world.SimulationPlayer{X: x, Z: z, Spectator: spectator})
+			byDimension[dimension] = append(byDimension[dimension], world.SimulationPlayer{X: x, Y: y, Z: z, Spectator: spectator})
 		}
 	}
 	var errs []error
@@ -39,10 +42,17 @@ func (s *Server) TickWorlds() error {
 		publish := func(previous, current world.WeatherLevels, changedRain bool) {
 			publishWeather(players, name, previous, current, changedRain)
 		}
-		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance), publish); err != nil {
+		var registerViewers []func()
+		added := func(entity world.WorldEntity) {
+			registerViewers = append(registerViewers, s.publishLightningSpawn(players, name, entity))
+		}
+		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance), publish, added); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
-		s.publishFallingEntities(w, players)
+		for _, register := range registerViewers {
+			register()
+		}
+		s.publishTickingEntities(w, players)
 	}
 	return errors.Join(errs...)
 }

@@ -4,8 +4,59 @@ import (
 	"atlas/internal/player"
 	"atlas/internal/proto"
 	"atlas/internal/world"
+	"encoding/hex"
 	"testing"
 )
+
+func TestLightningTrackingMatchesVanillaSpawnAndRemoval(t *testing.T) {
+	s, first := interactionServer(t)
+	first.SetPlayReady(true)
+	first.MarkChunkSent(0, 0)
+	second := player.New("Pending", [16]byte{2}, 2, nil)
+	second.SetPlayReady(true)
+	nether := player.New("Nether", [16]byte{3}, 3, nil)
+	nether.SetPlayReady(true)
+	nether.SetInitialDimension("minecraft:the_nether")
+	nether.MarkChunkSent(0, 0)
+	players := []*player.Player{first, second, nether}
+	entity := world.WorldEntity{UUID: [16]byte{7}, Type: world.LightningEntity, Position: [3]float64{8.5, -58, 8.5}}
+	// Block placement may hold entityMu throughout the chunk phase.
+	s.entityMu.Lock()
+	register := s.publishLightningSpawn(players, s.World.DimensionName(), entity)
+	s.entityMu.Unlock()
+	register()
+	if len(first.Out) != 1 || len(second.Out) != 0 || len(nether.Out) != 0 {
+		t.Fatal("unexpected lightning recipients")
+	}
+	packet := <-first.Out
+	r := proto.NewReader(packet.Payload)
+	id, err := r.VarInt()
+	uuid, uuidErr := r.UUID()
+	if packet.ID != proto.SSpawnEntity || err != nil || uuidErr != nil || uuid != entity.UUID || !first.IsVisible(id) {
+		t.Fatalf("invalid spawn packet %v", packet)
+	}
+	// Type and remaining bytes captured from a natural strike on Java 1.21.1.
+	const vanilla = "404021000000000000c04d000000000000402100000000000000000000000000000000"
+	body, _ := r.Bytes(r.Remaining())
+	if got := hex.EncodeToString(body); got != vanilla {
+		t.Fatalf("spawn body %s, want %s", got, vanilla)
+	}
+	s.updateGeneratedEntityVisibility(first)
+	if !first.IsVisible(id) {
+		t.Fatal("generated entity refresh removed live bolt")
+	}
+	s.publishTickingEntities(s.World, players)
+	if len(first.Out) != 1 || first.IsVisible(id) || s.trackedTicking != 0 {
+		t.Fatal("expired bolt still tracked or missing removal")
+	}
+	packet = <-first.Out
+	r = proto.NewReader(packet.Payload)
+	n, err := r.VarInt()
+	removed, idErr := r.VarInt()
+	if packet.ID != proto.SEntityDestroy || err != nil || idErr != nil || n != 1 || removed != id || r.Remaining() != 0 {
+		t.Fatalf("invalid destroy packet %v", packet)
+	}
+}
 
 func TestFallingEntityVisibilityWaitsForTerrainAndSharesMotion(t *testing.T) {
 	s, first := interactionServer(t)
@@ -26,7 +77,7 @@ func TestFallingEntityVisibilityWaitsForTerrainAndSharesMotion(t *testing.T) {
 		if err := s.World.Tick(world.TickChunks{Blocks: center, Entities: center}); err != nil {
 			t.Fatal(err)
 		}
-		s.publishFallingEntities(s.World, s.Hub.Snapshot())
+		s.publishTickingEntities(s.World, s.Hub.Snapshot())
 	}
 	tick()
 	tick()

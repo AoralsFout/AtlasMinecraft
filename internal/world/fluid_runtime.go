@@ -150,6 +150,7 @@ func (w *World) fluidSettings() worldgen.FluidSettings {
 }
 
 type fluidRuntime struct {
+	lightningAdded func(WorldEntity)
 	world          *World
 	settings       worldgen.FluidSettings
 	stack, added   []*fluidNeighborUpdate

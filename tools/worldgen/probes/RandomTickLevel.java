@@ -58,6 +58,14 @@ public final class RandomTickLevel extends aqu {
         t = 1779033703;
     }
 
+    public static Map<String,float[]> entitySizes() {
+        Map<String,float[]> result = new TreeMap<>();
+        for (bsx<?> type : lt.f) {
+            result.put(lt.f.b(type).toString(), new float[]{type.l(), type.m()});
+        }
+        return result;
+    }
+
     public static int[] stateFlags() {
         int[] flags = new int[dfy.q.c()];
         for (int i = 0; i < flags.length; i++) {
@@ -70,7 +78,42 @@ public final class RandomTickLevel extends aqu {
     }
 
     @Override public boolean ad() { return rainy; }
-    @Override public boolean ac() { return false; } // no thunderstorms
+    private jd strikeTarget;
+    private bsr spawnedBolt;
+    @Override public boolean ac() { return strikeTarget != null; }
+    @Override protected jd b(jd column) { return strikeTarget; }
+    @Override public bqp d_(jd p) { return new bqp(bqo.a,0L,0L,0f); }
+    @Override public cpl J() { return cpn.f; }
+    @Override public boolean b(bsr entity) { spawnedBolt = entity; return true; }
+
+    public List<Map<String,Object>> lightningCases(ka registries) throws Exception {
+        List<Map<String,Object>> cases = new ArrayList<>();
+        long seed = 0;
+        while (new dyz(seed).a(100000) != 0) seed++;
+        for (boolean mobSpawning : List.of(false,true)) {
+            reset();
+            weatherRules = new dcs();
+            weatherRules.a(dcs.e).a(mobSpawning, (net.minecraft.server.MinecraftServer)null);
+            biome = registries.d(lu.aF).c(akr.a("minecraft:plains")).orElseThrow();
+            rainy = true;
+            // Isolate tickChunk's random stream from target search and entity ticking.
+            // The live-server trace independently exercises redirection by real POIs.
+            strikeTarget = CENTER.d();
+            spawnedBolt = null;
+            initial(CENTER,block("lightning_rod"));
+            initial(CENTER.b(-1,0,0),block("grass_block"));
+            var result = scene("storm_" + mobSpawning,false);
+            result.put("mobSpawning",mobSpawning);
+            // At this speed the trap roll shifts a 1/48 precipitation hit
+            // into the sampled window, changing subsequent section positions.
+            result.put("row",step(54,seed,15,CENTER,new int[0][]));
+            if (!(spawnedBolt instanceof btm)) throw new IllegalStateException("missing lightning bolt");
+            result.put("position",new double[]{spawnedBolt.dt(),spawnedBolt.dv(),spawnedBolt.dz()});
+            cases.add(result);
+            strikeTarget = null;
+        }
+        return cases;
+    }
     @Override public boolean h(jd p) { return light == 15; }
     @Override public jm<ddw> t(jd p) { return biome; }
     @Override public int a(dyy.a type, int x, int z) {

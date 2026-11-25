@@ -3,6 +3,7 @@ package world
 import (
 	"atlas/internal/registry"
 	"atlas/internal/worldgen"
+	"errors"
 	"strconv"
 )
 
@@ -97,6 +98,22 @@ func (w *World) biomeAt(p worldgen.FeaturePosition) (string, error) {
 		id = c.biomes[(y-(c.minY>>2))>>2][(y&3)<<4|(qz&3)<<2|(qx&3)]
 		return nil
 	})
+	// Biome zoom can select a quart across the border of the outermost
+	// loaded chunk, e.g. when a distant rod attracts lightning. ServerLevel
+	// queries the generator's noise biome when this chunk is unavailable.
+	if errors.Is(err, ErrChunkNotLoaded) && w.store != nil {
+		v := w.store.vanilla
+		if v.flat != nil {
+			return registry.BiomeName(v.flat.biome)
+		}
+		if v.normal != nil {
+			sampler, err := worldgen.NewOverworldBiomeSampler(w.seed)
+			if err != nil {
+				return "", err
+			}
+			return sampler.BiomeAtQuart(qx, qy, qz)
+		}
+	}
 	if err != nil {
 		return "", err
 	}

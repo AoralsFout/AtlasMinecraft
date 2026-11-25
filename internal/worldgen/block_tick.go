@@ -63,6 +63,17 @@ func TickScheduledBlock(world ScheduledBlockWorld, p FeaturePosition, name strin
 		return buttonWorld.NotifyButtonNeighbors(p, state)
 	}
 	switch blockTickHandlers[name] {
+	case "dkn":
+		updates, ok := world.(interface {
+			NotifyRodSupport(FeaturePosition, SurfaceBlockState) error
+		})
+		if !ok {
+			return fmt.Errorf("lightning rod release requires support notifications")
+		}
+		if err := world.SetFluidBlock(p, stateWithProperty(state, "powered", "false"), 3); err != nil {
+			return err
+		}
+		return updates.NotifyRodSupport(p, state)
 	case "dtb":
 		return nil // BlockBehaviour.tick is empty.
 	case "div":

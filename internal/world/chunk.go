@@ -282,6 +282,14 @@ func (c *Chunk) SetBlock(lx, lz int, y int32, state uint32) {
 	}
 }
 
+func (c *Chunk) motionBlockingHeight(x, z int) int32 {
+	y := c.Height(x, z)
+	for y > c.minY && !stateFlag(motionFlags, c.GetBlock(x, z, y-1)) {
+		y--
+	}
+	return y
+}
+
 // GetBlock reads a state at chunk-local x/z and absolute y.
 func (c *Chunk) GetBlock(lx, lz int, y int32) uint32 {
 	si := c.sectionOf(y)

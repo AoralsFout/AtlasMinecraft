@@ -53,6 +53,7 @@ type World struct {
 	randomPosition  uint32
 	randomSequences *lootSequences
 	tickRandom      *worldgen.LegacyRandom // runtime stream, independent of terrain RNG
+	bolts           []lightningBolt        // transient, guarded by blockUpdateMu
 	fallingEntities fallingEntityOrder
 	simulation      atomic.Pointer[simulationTickets]
 	simulationWake  chan struct{}

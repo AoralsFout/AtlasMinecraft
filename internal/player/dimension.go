@@ -44,21 +44,26 @@ func (p *Player) GameMode() int8 {
 // SimulationPosition captures dimension, exact horizontal position and mode
 // together, including movement that has not crossed a chunk boundary.
 func (p *Player) SimulationPosition() (dimension string, x, z float64, spectator, active bool) {
+	dimension, x, _, z, spectator, active = p.SimulationPosition3D()
+	return
+}
+
+func (p *Player) SimulationPosition3D() (dimension string, x, y, z float64, spectator, active bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.playReady || p.awaitingCredits {
-		return "", 0, 0, false, false
+		return "", 0, 0, 0, false, false
 	}
 	select {
 	case <-p.Done:
-		return "", 0, 0, false, false
+		return "", 0, 0, 0, false, false
 	default:
 	}
 	dimension = p.dimension
 	if dimension == "" {
 		dimension = "minecraft:overworld"
 	}
-	return dimension, p.x, p.z, p.gameMode == SpectatorMode, true
+	return dimension, p.x, p.y, p.z, p.gameMode == SpectatorMode, true
 }
 
 func (p *Player) WorldPositionWithPortalCooldown() (string, float64, float64, float64, float32, float32, bool, int32) {

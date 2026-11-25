@@ -12,6 +12,7 @@ type TickChunks struct {
 	Blocks         func(x, z int32) bool // Scheduled blocks and fluids.
 	Random         func(x, z int32) bool // Random block and fluid ticks.
 	publishWeather WeatherPublisher
+	lightningAdded func(WorldEntity)
 	Entities       func(x, z int32) bool
 }
 
@@ -71,6 +72,7 @@ func (w *World) tickLocked(chunks TickChunks, live, serverTick bool) error {
 		if runtime == nil {
 			runtime = &fluidRuntime{world: w, settings: w.fluidSettings()}
 		}
+		runtime.lightningAdded = chunks.lightningAdded
 		if err := runtime.tickRandomChunks(chunks); err != nil {
 			failure = errors.Join(failure, fmt.Errorf("random ticks: %w", err))
 			if !live {
@@ -79,6 +81,9 @@ func (w *World) tickLocked(chunks TickChunks, live, serverTick bool) error {
 		}
 	}
 	if chunks.Entities != nil {
+		if err := w.tickLightning(chunks.Entities); err != nil {
+			failure = errors.Join(failure, err)
+		}
 		if err := w.tickFallingEntitiesLocked(chunks.Entities, live); err != nil {
 			return errors.Join(failure, fmt.Errorf("falling entities: %w", err))
 		}

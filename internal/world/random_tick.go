@@ -128,9 +128,9 @@ func (r *fluidRuntime) randomTickChunk(h *chunkScheduledTicks, speed int32, obse
 	x, z := h.x*16, h.z*16
 	levels := w.WeatherLevels()
 	if w.HasSkyLight() && levels.IsRaining() && float64(levels.Rain*levels.Thunder) > 0.9 && w.tickRandom.NextIntBound(100000) == 0 {
-		// The strike column is drawn before precipitation. Lightning entities
-		// and their interactions with mobs and rods have a separate lifecycle.
-		w.nextBlockPosition(x, 0, z)
+		if err := r.naturalLightning(w.nextBlockPosition(x, 0, z)); err != nil {
+			return err
+		}
 	}
 	// Precipitation precedes section sampling, including in clear weather.
 	for i := int32(0); i < speed; i++ {

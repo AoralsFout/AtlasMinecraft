@@ -29,12 +29,16 @@ public final class RandomTickProbe {
         Gson gson = new Gson();
         // Bootstrapping redirects standard output through the logger.
         var out = new PrintStream(new BufferedOutputStream(new FileOutputStream(FileDescriptor.out)));
+        out.println("sizes " + gson.toJson(type.getMethod("entitySizes").invoke(null)));
         out.println("flags " + gson.toJson(type.getMethod("stateFlags").invoke(null)));
         for (Object row : (List<?>) type.getMethod("capture",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
             out.println("case " + gson.toJson(row));
         }
         for (Object row : (List<?>) type.getMethod("precipitationCases",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
             out.println("precipitation " + gson.toJson(row));
+        }
+        for (Object row : (List<?>) type.getMethod("lightningCases",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
+            out.println("lightning " + gson.toJson(row));
         }
         out.flush();
     }

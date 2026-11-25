@@ -46,18 +46,39 @@ func fallingSpawnPayload(id int32, entity world.WorldEntity) []byte {
 	return fallingMotion(w, entity).Payload()
 }
 
+func tickingEntityType(name string) bool {
+	return name == fallingBlockEntity || name == world.LightningEntity
+}
+
+func lightningInRange(p *player.Player, entity world.WorldEntity) bool {
+	if entity.Type != world.LightningEntity {
+		return true
+	}
+	x, _, z, _, _, _ := p.Pos()
+	return math.Abs(x-entity.Position[0]) <= 16*16 && math.Abs(z-entity.Position[2]) <= 16*16
+}
+
+func tickingSpawnPayload(id int32, entity world.WorldEntity) []byte {
+	if entity.Type != world.LightningEntity {
+		return fallingSpawnPayload(id, entity)
+	}
+	xyz := entity.Position
+	return proto.NewWriter().VarInt(id).UUID(entity.UUID).VarInt(64).
+		F64(xyz[0]).F64(xyz[1]).F64(xyz[2]).I8(0).I8(0).I8(0).VarInt(0).I16(0).I16(0).I16(0).Payload()
+}
+
 func fallingChunk(entity world.WorldEntity) (int32, int32) {
 	return int32(math.Floor(entity.Position[0] / 16)), int32(math.Floor(entity.Position[2] / 16))
 }
 
 // World snapshots come from the live index without asking any region actor.
 // entityMu keeps view changes, packet publication and dimension transfers in order.
-func (s *Server) publishFallingEntities(w *world.World, players []*player.Player) {
+func (s *Server) publishTickingEntities(w *world.World, players []*player.Player) {
+	snapshots := append(w.FallingEntities(), w.LightningEntities()...)
 	s.entityMu.Lock()
 	defer s.entityMu.Unlock()
 	dimension := w.DimensionName()
-	snapshots := w.FallingEntities()
-	if len(snapshots) == 0 && s.trackedFalling == 0 {
+	if len(snapshots) == 0 && s.trackedTicking == 0 {
 		return
 	}
 	live := make(map[[16]byte]world.WorldEntity, len(snapshots))
@@ -73,11 +94,11 @@ func (s *Server) publishFallingEntities(w *world.World, players []*player.Player
 		var removed []int32
 		for key, id := range view {
 			tracking := s.generatedEntities[key]
-			if key.dimension != dimension || tracking == nil || tracking.snapshot.Type != fallingBlockEntity {
+			if key.dimension != dimension || tracking == nil || !tickingEntityType(tracking.snapshot.Type) {
 				continue
 			}
 			if entity, ok := live[key.uuid]; ok {
-				if x, z := fallingChunk(entity); sink.IsChunkSent(x, z) {
+				if x, z := fallingChunk(entity); sink.IsChunkSent(x, z) && lightningInRange(p, entity) {
 					continue
 				}
 			}
@@ -91,7 +112,7 @@ func (s *Server) publishFallingEntities(w *world.World, players []*player.Player
 		}
 		for _, entity := range snapshots {
 			cx, cz := fallingChunk(entity)
-			if !sink.IsChunkSent(cx, cz) {
+			if !sink.IsChunkSent(cx, cz) || !lightningInRange(p, entity) {
 				continue
 			}
 			key := generatedEntityKey{dimension, entity.UUID}
@@ -105,27 +126,66 @@ func (s *Server) publishFallingEntities(w *world.World, players []*player.Player
 				}
 				continue
 			}
-			firstViewer := tracking == nil
-			if firstViewer {
-				tracking = &generatedEntityTracking{id: s.nextEntityID(), snapshot: entity}
-			}
-			payload := fallingSpawnPayload(tracking.id, entity)
-			if len(payload) == 0 || !sink.SendPacketsInChunk(cx, cz, player.OutPacket{ID: proto.SSpawnEntity, Payload: payload}) {
-				continue
-			}
-			view = s.generatedEntityView(p)
-			s.generatedEntities[key] = tracking
-			if firstViewer {
-				s.trackedFalling++
-			}
-			tracking.viewers++
-			view[key] = tracking.id
-			p.MarkVisible(tracking.id)
+			s.spawnTickingEntity(p, sink, dimension, entity)
+			view = s.generatedViews[p]
 		}
 	}
 	for _, entity := range snapshots {
 		if tracking := s.generatedEntities[generatedEntityKey{dimension, entity.UUID}]; tracking != nil {
 			tracking.snapshot = entity
+		}
+	}
+}
+
+func (s *Server) spawnTickingEntity(p *player.Player, sink *player.WorldSink, dimension string, entity world.WorldEntity) {
+	key := generatedEntityKey{dimension, entity.UUID}
+	tracking := s.generatedEntities[key]
+	cx, cz := fallingChunk(entity)
+	if tracking == nil {
+		tracking = &generatedEntityTracking{id: s.nextEntityID(), snapshot: entity}
+	}
+	payload := tickingSpawnPayload(tracking.id, entity)
+	if len(payload) == 0 || !sink.SendPacketsInChunk(cx, cz, player.OutPacket{ID: proto.SSpawnEntity, Payload: payload}) {
+		return
+	}
+	s.recordTickingViewer(p, key, tracking)
+}
+
+// Requires entityMu. Every accepted delivery has one matching removal.
+func (s *Server) recordTickingViewer(p *player.Player, key generatedEntityKey, tracking *generatedEntityTracking) {
+	view := s.generatedEntityView(p)
+	if s.generatedEntities[key] == nil {
+		s.trackedTicking++
+		s.generatedEntities[key] = tracking
+	}
+	tracking.viewers++
+	view[key] = tracking.id
+	p.MarkVisible(tracking.id)
+}
+
+// Natural lightning starts tracking in tickChunk, before its first entity
+// tick changes the rod state and broadcasts the spark event.
+func (s *Server) publishLightningSpawn(players []*player.Player, dimension string, entity world.WorldEntity) func() {
+	tracking := &generatedEntityTracking{id: s.nextEntityID(), snapshot: entity}
+	cx, cz := fallingChunk(entity)
+	packet := player.OutPacket{ID: proto.SSpawnEntity, Payload: tickingSpawnPayload(tracking.id, entity)}
+	delivered := make(map[*player.Player]*player.WorldSink)
+	for _, p := range players {
+		sink := p.WorldPacketSinkInDimension(dimension)
+		if sink != nil && p.PlayReady() && lightningInRange(p, entity) && sink.SendPacketsInChunk(cx, cz, packet) {
+			delivered[p] = sink
+		}
+	}
+	// Block placement takes entityMu before editing terrain. Record viewers
+	// after the world tick releases its block lock to preserve that order.
+	return func() {
+		s.entityMu.Lock()
+		defer s.entityMu.Unlock()
+		key := generatedEntityKey{dimension, entity.UUID}
+		for p, sink := range delivered {
+			if sink.Current() {
+				s.recordTickingViewer(p, key, tracking)
+			}
 		}
 	}
 }

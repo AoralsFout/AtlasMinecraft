@@ -12,7 +12,7 @@ import (
 type ChunkPosition struct{ X, Z int32 }
 
 type SimulationPlayer struct {
-	X, Z      float64
+	X, Y, Z   float64
 	Spectator bool
 }
 
@@ -87,16 +87,16 @@ func (w *World) publishSimulationTickets(centers map[ChunkPosition]struct{}, dis
 // TickPlayers updates this dimension's player tickets and executes one game
 // tick. Changes to the ticket set wake asynchronous terrain preparation.
 func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
-	return w.tickPlayers(players, distance, false, nil)
+	return w.tickPlayers(players, distance, false, nil, nil)
 }
 
 // TickServerPlayers advances the clock for the Overworld and runs each
 // derived dimension's queues at the same age. The server ticks Overworld first.
-func (w *World) TickServerPlayers(players []SimulationPlayer, distance int32, publish WeatherPublisher) error {
-	return w.tickPlayers(players, distance, true, publish)
+func (w *World) TickServerPlayers(players []SimulationPlayer, distance int32, publish WeatherPublisher, lightningAdded func(WorldEntity)) error {
+	return w.tickPlayers(players, distance, true, publish, lightningAdded)
 }
 
-func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTick bool, publish WeatherPublisher) error {
+func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTick bool, publish WeatherPublisher, lightningAdded func(WorldEntity)) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
 	w.simulationPlayers = append(w.simulationPlayers[:0], players...)
@@ -109,7 +109,7 @@ func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTi
 		}
 		if w.spawnRadius == 0 && len(w.portalTicks) == 0 {
 			w.simulation.Store(nil)
-			return w.tickLocked(TickChunks{publishWeather: publish}, true, serverTick)
+			return w.tickLocked(TickChunks{publishWeather: publish, lightningAdded: lightningAdded}, true, serverTick)
 		}
 	} else {
 		w.emptyTicks = 0
@@ -123,6 +123,7 @@ func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTi
 	}
 	chunks := TickChunks{
 		publishWeather: publish,
+		lightningAdded: lightningAdded,
 		Blocks: func(x, z int32) bool {
 			d, ok := tickets.chunks[chunkKey{x, z}]
 			return ok && d.level <= 32

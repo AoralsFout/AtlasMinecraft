@@ -4,6 +4,8 @@ import (
 	"atlas/internal/light"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"time"
 )
 
@@ -113,6 +115,11 @@ func (r *Region) unloadUnused(cutoff time.Time) (int, error) {
 		}
 		delete(r.chunks, key)
 		r.world.fallingEntities.unregister(key.x, key.z)
+		// UnloadIdle holds blockUpdateMu until every region has replied.
+		r.world.bolts = slices.DeleteFunc(r.world.bolts, func(b lightningBolt) bool {
+			p := b.entity.Position
+			return int32(math.Floor(p[0]/16)) == key.x && int32(math.Floor(p[2]/16)) == key.z
+		})
 		r.world.loadedChunks.Add(-1)
 		count++
 	}
