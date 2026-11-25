@@ -33,6 +33,9 @@ public final class RandomTickProbe {
         for (Object row : (List<?>) type.getMethod("capture",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
             out.println("case " + gson.toJson(row));
         }
+        for (Object row : (List<?>) type.getMethod("precipitationCases",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
+            out.println("precipitation " + gson.toJson(row));
+        }
         out.flush();
     }
 }

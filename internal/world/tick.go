@@ -9,14 +9,15 @@ import (
 // read-only and cannot call chunk actors. Blocks runs under the queue lock.
 // A nil predicate disables its phase for this tick.
 type TickChunks struct {
-	Blocks   func(x, z int32) bool // Scheduled blocks and fluids.
-	Random   func(x, z int32) bool // Random block and fluid ticks.
-	Entities func(x, z int32) bool
+	Blocks         func(x, z int32) bool // Scheduled blocks and fluids.
+	Random         func(x, z int32) bool // Random block and fluid ticks.
+	publishWeather WeatherPublisher
+	Entities       func(x, z int32) bool
 }
 
 // Tick advances one game tick, runs scheduled blocks, fluids and random ticks, then moves
 // falling entities. A failed phase leaves the clock advanced and stops the
-// remaining phases for this dimension. A zero TickChunks advances time only.
+// remaining phases for this dimension. A zero TickChunks advances time and weather.
 func (w *World) Tick(chunks TickChunks) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
@@ -33,6 +34,9 @@ func (w *World) tickLocked(chunks TickChunks, live, serverTick bool) error {
 		}
 		return ErrWorldClosed
 	default:
+	}
+	if err := w.advanceWeather(chunks.publishWeather); err != nil {
+		return err
 	}
 	var failure error
 	var runtime *fluidRuntime

@@ -80,7 +80,11 @@ func readCommandTree(t *testing.T, payload []byte) []commandNode {
 			case 0, 7, 8, 9, 10, 12, 27:
 			case 42:
 				minimum, err := r.I32()
-				if err != nil || minimum != 0 {
+				want := int32(0)
+				if nodes[i].name == "duration" {
+					want = 1
+				}
+				if err != nil || minimum != want {
 					t.Fatal("invalid time properties")
 				}
 			default:
@@ -146,6 +150,7 @@ func TestCommandTreesMatchPermissionsAndTypedArguments(t *testing.T) {
 			{[]string{"time", "set", "time"}, 42, true}, {[]string{"time", "query", "day"}, -1, true},
 			{[]string{"gamerule", "spawnChunkRadius"}, -1, true}, {[]string{"gamerule", "spawnChunkRadius", "value"}, 3, true},
 			{[]string{"gamerule", "doDaylightCycle", "value"}, 0, true},
+			{[]string{"weather", "thunder", "duration"}, 42, true}, {[]string{"gamerule", "doWeatherCycle", "value"}, 0, true},
 			{[]string{"weather", "rain"}, -1, true}, {[]string{"save-all", "flush"}, -1, true},
 			{[]string{"setworldspawn"}, -1, true}, {[]string{"setworldspawn", "pos"}, 8, true},
 			{[]string{"setworldspawn", "pos", "angle"}, 27, true},

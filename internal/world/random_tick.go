@@ -126,12 +126,21 @@ func (w *World) nextBlockPosition(x, y, z int32) worldgen.FeaturePosition {
 func (r *fluidRuntime) randomTickChunk(h *chunkScheduledTicks, speed int32, observe func(worldgen.FeaturePosition, bool)) error {
 	w := r.world
 	x, z := h.x*16, h.z*16
-	// Clear-weather tickChunk still samples precipitation columns before sections.
+	levels := w.WeatherLevels()
+	if w.HasSkyLight() && levels.IsRaining() && float64(levels.Rain*levels.Thunder) > 0.9 && w.tickRandom.NextIntBound(100000) == 0 {
+		// The strike column is drawn before precipitation. Lightning entities
+		// and their interactions with mobs and rods have a separate lifecycle.
+		w.nextBlockPosition(x, 0, z)
+	}
+	// Precipitation precedes section sampling, including in clear weather.
 	for i := int32(0); i < speed; i++ {
 		if w.tickRandom.NextIntBound(48) == 0 {
 			p := w.nextBlockPosition(x, 0, z)
 			if observe != nil {
 				observe(p, true)
+			}
+			if err := r.tickPrecipitation(p, levels.IsRaining()); err != nil {
+				return err
 			}
 		}
 	}

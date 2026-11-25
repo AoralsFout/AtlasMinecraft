@@ -23,11 +23,11 @@ var commandSpecs = []commandSpec{
 	{"mspt", 2, "/mspt", nil},
 	{"status", 2, "/status (alias: /sysinfo)", []string{"sysinfo"}},
 	{"seed", 2, "/seed", []string{"minecraft:seed"}},
-	{"gamerule", 2, "/gamerule spawnChunkRadius [0..32] | /gamerule doDaylightCycle [true|false]", []string{"minecraft:gamerule"}},
-	{"execute", 2, "/execute in <dimension> run <tp|setblock|forceload|gamerule|time> ...", []string{"minecraft:execute"}},
+	{"gamerule", 2, "/gamerule spawnChunkRadius [0..32] | /gamerule <doDaylightCycle|doWeatherCycle> [true|false] | /gamerule snowAccumulationHeight [height]", []string{"minecraft:gamerule"}},
+	{"execute", 2, "/execute in <dimension> run <tp|setblock|forceload|gamerule|time|weather> ...", []string{"minecraft:execute"}},
 	{"forceload", 2, "/forceload <add|remove> <x z> [x z] | remove all | query [x z]", []string{"minecraft:forceload"}},
 	{"time", 2, "/time <query [daytime|gametime|day]|set <day|noon|night|midnight|time>|add <time>>", []string{"minecraft:time"}},
-	{"weather", 2, "/weather <clear|rain|thunder>", []string{"minecraft:weather"}},
+	{"weather", 2, "/weather <clear|rain|thunder> [duration]", []string{"minecraft:weather"}},
 	{"tp", 2, "/tp [player] <destination player|x y z> (coordinates accept ~ and ^)", []string{"teleport", "minecraft:tp", "minecraft:teleport"}},
 	{"setworldspawn", 2, "/setworldspawn [x y z [angle]]", []string{"minecraft:setworldspawn"}},
 	{"spawnpoint", 2, "/spawnpoint [player] [x y z [angle]]", []string{"minecraft:spawnpoint"}},
@@ -105,8 +105,12 @@ func declareCommandsPayloadForLevel(level int) []byte {
 			case "gamerule":
 				rule := literal(root, "spawnChunkRadius", true)
 				argument(rule, "value", 3, proto.NewWriter().U8(3).I32(0).I32(32).Payload(), true, false)
-				daylight := literal(root, "doDaylightCycle", true)
-				argument(daylight, "value", 0, nil, true, false)
+				for _, name := range []string{"doDaylightCycle", "doWeatherCycle"} {
+					rule := literal(root, name, true)
+					argument(rule, "value", 0, nil, true, false)
+				}
+				snow := literal(root, "snowAccumulationHeight", true)
+				argument(snow, "value", 3, proto.NewWriter().U8(0).Payload(), true, false)
 			case "forceload":
 				for _, op := range []string{"add", "remove"} {
 					branch := literal(root, op, false)
@@ -143,7 +147,8 @@ func declareCommandsPayloadForLevel(level int) []byte {
 				}
 			case "weather":
 				for _, value := range []string{"clear", "rain", "thunder"} {
-					literal(root, value, true)
+					weather := literal(root, value, true)
+					argument(weather, "duration", 42, proto.NewWriter().I32(1).Payload(), true, false)
 				}
 			case "tp":
 				argument(root, "location", 10, nil, true, false)

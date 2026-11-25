@@ -44,24 +44,12 @@ func weatherPacket(reason byte, value float32) []byte {
 }
 
 func (s *Server) sendWeather(p *player.Player) {
-	weather := s.World.Weather()
-	if p.Dimension() != "minecraft:overworld" {
-		weather = "clear"
-	}
-	if weather == "clear" {
-		p.SendPacket(proto.SGameStateChange, weatherPacket(2, 0))
-	} else {
+	l := s.PlayerWorld(p).WeatherLevels()
+	if l.IsRaining() {
 		p.SendPacket(proto.SGameStateChange, weatherPacket(1, 0))
+		p.SendPacket(proto.SGameStateChange, weatherPacket(7, l.Rain))
+		p.SendPacket(proto.SGameStateChange, weatherPacket(8, l.Rain*l.Thunder))
 	}
-	rain, thunder := float32(0), float32(0)
-	if weather != "clear" {
-		rain = 1
-	}
-	if weather == "thunder" {
-		thunder = 1
-	}
-	p.SendPacket(proto.SGameStateChange, weatherPacket(7, rain))
-	p.SendPacket(proto.SGameStateChange, weatherPacket(8, thunder))
 }
 
 func (s *Server) sendWorldState(p *player.Player) {
@@ -173,17 +161,7 @@ func (s *Server) executeCommand(source *player.Player, line string) string {
 	case "gamerule":
 		return s.commandGameRule(args)
 	case "weather":
-		if len(args) != 1 {
-			return "Usage: /weather <clear|rain|thunder>"
-		}
-		if err := s.World.SetWeather(strings.ToLower(args[0])); err != nil {
-			return err.Error()
-		}
-		s.Hub.Each(s.sendWeather)
-		if err := s.SaveWorlds(); err != nil {
-			return "Weather changed, but saving failed: " + err.Error()
-		}
-		return "Weather set to " + s.World.Weather()
+		return s.commandWeather(args)
 	case "tp":
 		return s.commandTeleport(source, args)
 	case "setworldspawn":
@@ -368,25 +346,70 @@ func (s *Server) commandSetWorldSpawn(source *player.Player, args []string) stri
 	return fmt.Sprintf("Set the world spawn point to %d, %d, %d [%s]", x, y, z, formatCommandAngle(angle))
 }
 
+func (s *Server) commandWeather(args []string) string {
+	if len(args) < 1 || len(args) > 2 {
+		return "Usage: /weather <clear|rain|thunder> [duration]"
+	}
+	var ticks int64
+	if len(args) == 2 {
+		var err error
+		ticks, err = parseCommandTime(args[1])
+		if err != nil || ticks < 1 {
+			return "Invalid weather duration: expected at least 1 tick"
+		}
+	}
+	kind := strings.ToLower(args[0])
+	if err := s.World.SetWeatherDuration(kind, int32(ticks)); err != nil {
+		return err.Error()
+	}
+	if err := s.SaveWorlds(); err != nil {
+		return "Weather changed, but saving failed: " + err.Error()
+	}
+	return "Weather set to " + kind
+}
+
 func (s *Server) commandGameRule(args []string) string {
-	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule doDaylightCycle [true|false]"
+	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule <doDaylightCycle|doWeatherCycle> [true|false] | /gamerule snowAccumulationHeight [height]"
 	if len(args) < 1 || len(args) > 2 {
 		return usage
 	}
-	if args[0] == "doDaylightCycle" {
+	rule := args[0]
+	if rule == "snowAccumulationHeight" {
 		if len(args) == 1 {
-			_, _, enabled := s.World.TimeState()
-			return fmt.Sprintf("Gamerule doDaylightCycle is currently set to: %t", enabled)
+			return fmt.Sprintf("Gamerule %s is currently set to: %d", rule, s.World.SnowAccumulationHeight())
+		}
+		height, err := strconv.ParseInt(args[1], 10, 32)
+		if err != nil {
+			return "Invalid snowAccumulationHeight: expected an integer"
+		}
+		if err := s.World.SetSnowAccumulationHeight(int32(height)); err != nil {
+			return err.Error()
+		}
+		return fmt.Sprintf("Gamerule %s is now set to: %d", rule, height)
+	}
+	if rule == "doWeatherCycle" || rule == "doDaylightCycle" {
+		if len(args) == 1 {
+			var enabled bool
+			if rule == "doWeatherCycle" {
+				enabled = s.World.WeatherCycle()
+			} else {
+				_, _, enabled = s.World.TimeState()
+			}
+			return fmt.Sprintf("Gamerule %s is currently set to: %t", rule, enabled)
 		}
 		if args[1] != "true" && args[1] != "false" {
-			return "Invalid doDaylightCycle: expected true or false"
+			return "Invalid " + rule + ": expected true or false"
 		}
 		s.worldClockMu.Lock()
 		defer s.worldClockMu.Unlock()
-		if err := s.World.SetDaylightCycle(args[1] == "true"); err != nil {
+		set := s.World.SetDaylightCycle
+		if rule == "doWeatherCycle" {
+			set = s.World.SetWeatherCycle
+		}
+		if err := set(args[1] == "true"); err != nil {
 			return err.Error()
 		}
-		return "Gamerule doDaylightCycle is now set to: " + args[1]
+		return "Gamerule " + rule + " is now set to: " + args[1]
 	}
 	if args[0] != "spawnChunkRadius" {
 		return usage

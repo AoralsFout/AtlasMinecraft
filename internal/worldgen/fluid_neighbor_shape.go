@@ -1,10 +1,27 @@
 package worldgen
 
+import "strconv"
+
 // UpdateFluidNeighborShape applies immediate plant callbacks, schedules leaf
 // and falling-block updates, and reuses the existing structure block shapes.
 // Redstone and other delayed families still need their scheduled handlers.
 func UpdateFluidNeighborShape(world FeatureBlockWorld, p FeaturePosition, state SurfaceBlockState, face int, neighbor SurfaceBlockState) (SurfaceBlockState, error) {
 	direction := [6]string{"down", "up", "north", "south", "west", "east"}[face]
+	if direction == "up" {
+		if _, ok := state.Properties["snowy"]; ok {
+			snowy := neighbor.Name == "minecraft:snow" || neighbor.Name == "minecraft:snow_block" || neighbor.Name == "minecraft:powder_snow"
+			return stateWithProperty(state, "snowy", strconv.FormatBool(snowy)), nil
+		}
+	}
+	if direction == "down" && state.Name == "minecraft:snow" {
+		supported, err := SnowSupported(neighbor)
+		if err != nil {
+			return state, err
+		}
+		if !supported {
+			return structureState("air"), nil
+		}
+	}
 	if state.Name == "minecraft:farmland" && direction == "up" {
 		return state, updateFarmlandCover(world, p, neighbor)
 	}

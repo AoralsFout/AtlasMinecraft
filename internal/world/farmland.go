@@ -61,7 +61,7 @@ func (r *fluidRuntime) tickFarmland(p worldgen.FeaturePosition, s worldgen.Surfa
 
 func (r *fluidRuntime) rainingAt(p worldgen.FeaturePosition) (bool, error) {
 	w := r.world
-	if !w.HasSkyLight() || w.Weather() == "clear" {
+	if !w.HasSkyLight() || !w.WeatherLevels().IsRaining() {
 		return false, nil
 	}
 	sky, _, err := r.rawLightAt(p)
@@ -82,19 +82,23 @@ func (r *fluidRuntime) rainingAt(p worldgen.FeaturePosition) (bool, error) {
 	if err != nil || sheltered {
 		return false, err
 	}
+	biome, err := w.biomeAt(p)
+	if err != nil {
+		return false, err
+	}
+	return worldgen.BiomeRainsAt(biome, p.X, p.Y, p.Z)
+}
+
+func (w *World) biomeAt(p worldgen.FeaturePosition) (string, error) {
 	qx, qy, qz := worldgen.BiomeQuartAtBlock(w.seed, p.X, p.Y, p.Z)
 	var id int32
-	err = w.fallingEntityOperation(qx>>2, qz>>2, func(_ *Region, c *Chunk) error {
+	err := w.fallingEntityOperation(qx>>2, qz>>2, func(_ *Region, c *Chunk) error {
 		y := min(max(qy, c.minY>>2), (c.maxY-1)>>2)
 		id = c.biomes[(y-(c.minY>>2))>>2][(y&3)<<4|(qz&3)<<2|(qx&3)]
 		return nil
 	})
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	biome, err := registry.BiomeName(id)
-	if err != nil {
-		return false, err
-	}
-	return worldgen.BiomeRainsAt(biome, p.X, p.Y, p.Z)
+	return registry.BiomeName(id)
 }

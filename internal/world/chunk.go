@@ -26,6 +26,7 @@ const (
 	StateGrass   = 9 // grass_block
 	StateDirt    = 10
 	StateBedrock = 79
+	StateWater   = 80 // water[level=0]
 	StateVoidAir = 12958
 	StateCaveAir = 12959
 )

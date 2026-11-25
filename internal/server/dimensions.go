@@ -199,7 +199,7 @@ func boolFlyingFlag(p *player.Player) int8 {
 }
 
 func (s *Server) commandExecuteIn(source *player.Player, args []string) string {
-	usage := "Usage: /execute in <dimension> run <tp|setblock|forceload|gamerule|time> ..."
+	usage := "Usage: /execute in <dimension> run <tp|setblock|forceload|gamerule|time|weather> ..."
 	if len(args) < 4 || args[0] != "in" || args[2] != "run" {
 		return usage
 	}
@@ -239,6 +239,8 @@ func (s *Server) commandExecuteIn(source *player.Player, args []string) string {
 	switch command {
 	case "time":
 		return s.commandTime(args)
+	case "weather":
+		return s.commandWeather(args)
 	case "gamerule":
 		return s.commandGameRule(args)
 	case "forceload":

@@ -387,9 +387,7 @@ func (v *VanillaSave) generateFlat(cx, cz int32) (*Chunk, error) {
 	return c, nil
 }
 
-// A daylight rule change saves the exact clock it stops or resumes in the
-// same level.dat replacement. Other rules leave both counters untouched.
-func (v *VanillaSave) saveGameRule(name, value string, clock *worldMeta) error {
+func (v *VanillaSave) saveGameRule(name, value string, meta *worldMeta) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	root, _ := v.root.Object()
@@ -402,9 +400,8 @@ func (v *VanillaSave) saveGameRule(name, value string, clock *worldMeta) error {
 	}
 	rules[name] = nbt.Tag{Type: nbt.String, Value: value}
 	level["GameRules"] = nbt.Tag{Type: nbt.Compound, Value: rules}
-	if clock != nil {
-		level["Time"] = nbt.Tag{Type: nbt.Long, Value: clock.Age}
-		level["DayTime"] = nbt.Tag{Type: nbt.Long, Value: clock.DayTime}
+	if meta != nil {
+		writeWorldMeta(level, *meta)
 	}
 	return v.commitLevelLocked(level)
 }
@@ -421,14 +418,13 @@ func (v *VanillaSave) loadMeta() (worldMeta, error) {
 	}
 	rain, _ := data.Number("raining")
 	thunder, _ := data.Number("thundering")
-	weather := "clear"
-	if rain != 0 {
-		weather = "rain"
-	}
-	if thunder != 0 {
-		weather = "thunder"
-	}
-	return worldMeta{Age: age, DayTime: day, Weather: weather}, nil
+	clearTime, _ := data.Number("clearWeatherTime")
+	rainTime, _ := data.Number("rainTime")
+	thunderTime, _ := data.Number("thunderTime")
+	return worldMeta{Age: age, DayTime: day, weatherTimers: weatherTimers{
+		ClearTime: int32(clearTime), RainTime: int32(rainTime), ThunderTime: int32(thunderTime),
+		Raining: rain != 0, Thundering: thunder != 0,
+	}}, nil
 }
 
 func (v *VanillaSave) saveMeta(m worldMeta) error {
@@ -439,18 +435,26 @@ func (v *VanillaSave) saveMeta(m worldMeta) error {
 	defer v.mu.Unlock()
 	o, _ := v.root.Object()
 	data, _ := o.Object("Data")
+	level := maps.Clone(data)
+	writeWorldMeta(level, m)
+	return v.commitLevelLocked(level)
+}
+
+func writeWorldMeta(data nbt.Object, m worldMeta) {
 	data["Time"] = nbt.Tag{Type: nbt.Long, Value: m.Age}
 	data["DayTime"] = nbt.Tag{Type: nbt.Long, Value: m.DayTime}
 	rain, thunder := int8(0), int8(0)
-	if m.Weather != "clear" {
+	if m.Raining {
 		rain = 1
 	}
-	if m.Weather == "thunder" {
+	if m.Thundering {
 		thunder = 1
 	}
 	data["raining"] = nbt.Tag{Type: nbt.Byte, Value: rain}
 	data["thundering"] = nbt.Tag{Type: nbt.Byte, Value: thunder}
-	return writeGzipNBTAtomic(filepath.Join(v.dir, "level.dat"), v.name, v.root)
+	data["clearWeatherTime"] = nbt.Tag{Type: nbt.Int, Value: m.ClearTime}
+	data["rainTime"] = nbt.Tag{Type: nbt.Int, Value: m.RainTime}
+	data["thunderTime"] = nbt.Tag{Type: nbt.Int, Value: m.ThunderTime}
 }
 
 func writeGzipNBTAtomic(path, name string, root nbt.Tag) error {

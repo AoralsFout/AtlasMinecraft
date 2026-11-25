@@ -34,6 +34,9 @@ type World struct {
 	meta            worldMeta
 	clockSource     atomic.Pointer[World] // Registered dimensions read the Overworld clock.
 	daylightStopped bool                  // guarded by the clock owner's stateMu
+	weatherStopped  bool
+	levels          WeatherLevels
+	snowHeight      int32
 	seed            int64
 	workers         int
 	loadChunk       func(int32, int32) (*Chunk, error)
@@ -70,7 +73,7 @@ type genJob struct {
 }
 
 func New(hub HubView, genWorkers int) *World {
-	return newWorld(hub, genWorkers, nil, worldMeta{Weather: "clear"})
+	return newWorld(hub, genWorkers, nil, worldMeta{})
 }
 
 // Open loads an existing Java Edition save. An incompatible or corrupt save
@@ -96,6 +99,18 @@ func newWorld(hub HubView, genWorkers int, store *Store, meta worldMeta) *World 
 	}
 	w.randomSequences = &lootSequences{}
 	w.daylightStopped = !strings.EqualFold(w.gameRule("doDaylightCycle", "true"), "true")
+	w.weatherStopped = !strings.EqualFold(w.gameRule("doWeatherCycle", "true"), "true")
+	height, err := strconv.ParseInt(w.gameRule("snowAccumulationHeight", "1"), 10, 32)
+	if err != nil {
+		height = 1
+	}
+	w.snowHeight = int32(height)
+	if meta.Raining {
+		w.levels.Rain = 1
+		if meta.Thundering {
+			w.levels.Thunder = 1
+		}
+	}
 	w.dimension, _ = builtinDimension("minecraft:overworld")
 	if store != nil {
 		w.dimension = store.vanilla.dimension
@@ -445,9 +460,14 @@ func (w *World) SetDayTime(ticks int64) {
 }
 
 func (w *World) SetDaylightCycle(enabled bool) error {
+	return w.setCycleRule("doDaylightCycle", strconv.FormatBool(enabled), func(owner *World) { owner.daylightStopped = !enabled })
+}
+
+// Commit the rule and the exact state it stops or resumes together.
+func (w *World) setCycleRule(name, value string, apply func(*World)) error {
 	w = w.clockOwner()
 	if w.DimensionName() != "minecraft:overworld" {
-		return errors.New("doDaylightCycle is owned by the Overworld")
+		return fmt.Errorf("%s is owned by the Overworld", name)
 	}
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
@@ -459,21 +479,17 @@ func (w *World) SetDaylightCycle(enabled bool) error {
 	default:
 	}
 	if w.store != nil {
-		age, day := w.Time()
-		if err := w.store.vanilla.saveGameRule("doDaylightCycle", strconv.FormatBool(enabled), &worldMeta{Age: age, DayTime: day}); err != nil {
+		w.stateMu.RLock()
+		meta := w.meta
+		w.stateMu.RUnlock()
+		if err := w.store.vanilla.saveGameRule(name, value, &meta); err != nil {
 			return err
 		}
 	}
 	w.stateMu.Lock()
-	w.daylightStopped = !enabled
+	apply(w)
 	w.stateMu.Unlock()
 	return nil
-}
-
-func (w *World) Weather() string {
-	w.stateMu.RLock()
-	defer w.stateMu.RUnlock()
-	return w.meta.Weather
 }
 
 func (w *World) LoadPlayer(uuid [16]byte) (PlayerPosition, bool, error) {
@@ -510,16 +526,6 @@ func (w *World) SetPlayerSpawn(uuid [16]byte, x, y, z int32, angle float32) erro
 		return errors.New("no Java Edition save is loaded")
 	}
 	return w.store.SavePlayerSpawn(uuid, x, y, z, angle)
-}
-
-func (w *World) SetWeather(weather string) error {
-	if weather != "clear" && weather != "rain" && weather != "thunder" {
-		return errors.New("weather must be clear, rain, or thunder")
-	}
-	w.stateMu.Lock()
-	w.meta.Weather = weather
-	w.stateMu.Unlock()
-	return nil
 }
 
 // Save flushes world metadata. Block edits are durable when SetBlock returns.

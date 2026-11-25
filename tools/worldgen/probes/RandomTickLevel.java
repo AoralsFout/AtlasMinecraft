@@ -313,6 +313,66 @@ public final class RandomTickLevel extends aqu {
         return cases;
     }
 
+    @Override public boolean a(jd pos, dtc state, int flags, int recursion) {
+        return a(pos,state,flags);
+    }
+
+    private dcs weatherRules;
+    @Override public dcs ab() { return weatherRules != null ? weatherRules : super.ab(); }
+    @Override public int I_() { return -64; }
+    @Override public int am() { return 320; }
+    @Override public int a(ddf layer, jd pos) { return light; }
+
+    // Invoke the original tickPrecipitation for one selected column at a time.
+    public List<Map<String,Object>> precipitationCases(ka registries) throws Exception {
+        biomes = registries.d(lu.aF);
+        List<Map<String,Object>> cases = new ArrayList<>();
+        for (String name : List.of("snow_one", "snow_accumulate", "snow_disabled", "too_bright",
+                "warm", "clear_bank", "lake_interior", "flowing_water", "waterlogged",
+                "ice_support", "honey_support", "grass_snowy", "roof")) {
+            reset();
+            weatherRules = new dcs();
+            int cap = name.equals("snow_accumulate") ? 12 : name.equals("snow_disabled") ? 0 : 1;
+            weatherRules.a(dcs.T).a(cap, null);
+            rainy = !name.equals("clear_bank");
+            light = name.equals("too_bright") ? 10 : 9;
+            String climate = name.equals("warm") ? "plains" : "snowy_plains";
+            biome = biomes.c(akr.a("minecraft:" + climate)).orElseThrow();
+            dtc ground = switch (name) {
+                case "clear_bank", "lake_interior" -> block("water");
+                case "flowing_water" -> block("water").a(dko.b, 1);
+                case "waterlogged" -> block("oak_leaves").a(dki.f,true).a(dki.e,true);
+                case "ice_support" -> block("ice");
+                case "honey_support" -> block("honey_block");
+                case "grass_snowy" -> block("grass_block");
+                default -> block("stone");
+            };
+            initial(CENTER, ground);
+            initial(CENTER.d(), block("air"));
+            initial(CENTER.b(0,2,0), block("air"));
+            if (name.equals("lake_interior")) {
+                for (jd p : List.of(CENTER.h(), CENTER.i(), CENTER.f(), CENTER.g())) initial(p,block("water"));
+            }
+            if (name.equals("roof")) {
+                initial(CENTER.b(0,3,0),block("glass"));
+                initial(CENTER.b(0,4,0),block("air"));
+            }
+            var result = scene(name,false);
+            result.put("rain",rainy);
+            result.put("biome",climate);
+            result.put("light",light);
+            result.put("cap",cap);
+            List<int[]> states = new ArrayList<>();
+            for (int i=0; i<(cap>1 ? 10 : 2); i++) {
+                super.a(CENTER);
+                states.add(tracked.stream().mapToInt(p -> dfy.i(a_(p))).toArray());
+            }
+            result.put("states",states);
+            cases.add(result);
+        }
+        return cases;
+    }
+
     private Map<String,Object> farmland(String layout) throws Exception {
         reset();
         jd soil = layout.equals("flowing_border") ? CENTER.b(7, 0, 0) : CENTER;

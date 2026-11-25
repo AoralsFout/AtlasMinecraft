@@ -1,6 +1,7 @@
 package server
 
 import (
+	"atlas/internal/player"
 	"atlas/internal/proto"
 	"atlas/internal/world"
 	"errors"
@@ -35,7 +36,10 @@ func (s *Server) TickWorlds() error {
 				}
 			}
 		}
-		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance)); err != nil {
+		publish := func(previous, current world.WeatherLevels, changedRain bool) {
+			publishWeather(players, name, previous, current, changedRain)
+		}
+		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance), publish); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 		s.publishFallingEntities(w, players)
@@ -52,4 +56,32 @@ func (s *Server) setDayTime(ticks int64, relative bool) int64 {
 	}
 	s.World.SetDayTime(ticks)
 	return ticks
+}
+
+// Intensity changes are dimension-local. When isRaining changes, vanilla
+// follows those packets with a start/stop and both raw levels for every player.
+func publishWeather(players []*player.Player, dimension string, previous, current world.WeatherLevels, changedRain bool) {
+	for _, p := range players {
+		if !p.PlayReady() {
+			continue
+		}
+		if sink := p.WorldPacketSinkInDimension(dimension); sink != nil {
+			if previous.Rain != current.Rain {
+				sink.SendPacket(proto.SGameStateChange, weatherPacket(7, current.Rain))
+			}
+			if previous.Thunder != current.Thunder {
+				sink.SendPacket(proto.SGameStateChange, weatherPacket(8, current.Thunder))
+			}
+		}
+		if changedRain {
+			event := byte(2)
+			if current.IsRaining() {
+				event = 1
+			}
+			sink := p.WorldPacketSink()
+			sink.SendPacket(proto.SGameStateChange, weatherPacket(event, 0))
+			sink.SendPacket(proto.SGameStateChange, weatherPacket(7, current.Rain))
+			sink.SendPacket(proto.SGameStateChange, weatherPacket(8, current.Thunder))
+		}
+	}
 }

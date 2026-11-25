@@ -1,0 +1,15 @@
+[
+{"name":"snow_one","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,1],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":1,"states":[[1,5772,0],[1,5772,0]]},
+{"name":"snow_accumulate","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,1],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":12,"states":[[1,5772,0],[1,5773,0],[1,5774,0],[1,5775,0],[1,5776,0],[1,5777,0],[1,5778,0],[1,5779,0],[1,5779,0],[1,5779,0]]},
+{"name":"snow_disabled","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,1],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":0,"states":[[1,0,0],[1,0,0]]},
+{"name":"too_bright","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,1],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":10,"cap":1,"states":[[1,0,0],[1,0,0]]},
+{"name":"warm","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,1],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"plains","light":9,"cap":1,"states":[[1,0,0],[1,0,0]]},
+{"name":"clear_bank","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,80],[-40,70,40,0],[-40,71,40,0]],"rain":false,"biome":"snowy_plains","light":9,"cap":1,"states":[[5780,0,0],[5780,0,0]]},
+{"name":"lake_interior","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,80],[-40,70,40,0],[-40,71,40,0],[-41,69,40,80],[-39,69,40,80],[-40,69,39,80],[-40,69,41,80]],"rain":true,"biome":"snowy_plains","light":9,"cap":1,"states":[[80,0,0,80,80,80,80],[80,0,0,80,80,80,80]]},
+{"name":"flowing_water","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,81],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":1,"states":[[81,0,0],[81,0,0]]},
+{"name":"waterlogged","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,261],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":1,"states":[[261,5772,0],[261,5772,0]]},
+{"name":"ice_support","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,5780],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":1,"states":[[5780,0,0],[5780,0,0]]},
+{"name":"honey_support","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,19445],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":1,"states":[[19445,5772,0],[19445,5772,0]]},
+{"name":"grass_snowy","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,9],[-40,70,40,0],[-40,71,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":1,"states":[[8,5772,0],[8,5772,0]]},
+{"name":"roof","chunk":[-3,2],"recount":false,"initial":[[-40,69,40,1],[-40,70,40,0],[-40,71,40,0],[-40,72,40,519],[-40,73,40,0]],"rain":true,"biome":"snowy_plains","light":9,"cap":1,"states":[[1,0,0,519,5772],[1,0,0,519,5772]]}
+]

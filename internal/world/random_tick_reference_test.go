@@ -87,9 +87,8 @@ func replayRandomTicks(t *testing.T, c randomTickScene) {
 		}
 	}
 	if c.Rain {
-		if err := w.SetWeather("rain"); err != nil {
-			t.Fatal(err)
-		}
+		// The native section harness overrides isRaining to return true immediately.
+		w.levels.Rain = 1
 		id, err := registry.BiomeID("minecraft:" + c.Biome)
 		if err != nil {
 			t.Fatal(err)

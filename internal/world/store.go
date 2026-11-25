@@ -23,7 +23,7 @@ func OpenStore(dir string) (*Store, error) {
 type worldMeta struct {
 	Age     int64
 	DayTime int64
-	Weather string
+	weatherTimers
 }
 
 // PlayerPosition remains separate from inventory so position-only tools can

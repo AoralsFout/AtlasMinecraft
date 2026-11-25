@@ -99,8 +99,8 @@ func PlaceIceSpikeFeature(world FeatureBlockWorld, random *WorldgenRandom, origi
 	return e.err == nil, e.err
 }
 
-// SnowLayerBlock's tagged exceptions precede its full upper-face check.
-func snowSupported(state SurfaceBlockState) (bool, error) {
+// SnowSupported applies SnowLayerBlock's tagged exceptions and full upper-face check.
+func SnowSupported(state SurfaceBlockState) (bool, error) {
 	if vegetationTags["snow_layer_cannot_survive_on"][state.Name] {
 		return false, nil
 	}
@@ -183,7 +183,7 @@ func PlaceSnowAndFreezeFeature(region *OverworldFeatureRegion, origin FeaturePos
 			state = e.block(p)
 			if cold && region.InWorld(p) && (surfaceAir(state) || state.Name == "minecraft:snow") {
 				ground := e.block(below)
-				supported, err := snowSupported(ground)
+				supported, err := SnowSupported(ground)
 				if err != nil {
 					return false, err
 				}
