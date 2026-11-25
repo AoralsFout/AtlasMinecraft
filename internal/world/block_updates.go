@@ -168,6 +168,12 @@ func (w *World) updateBlockNeighbors(changed []BlockPosition) error {
 				}
 				continue
 			}
+			if target != p && s.Name == "minecraft:farmland" && target.Y == p.Y-1 {
+				if _, err := worldgen.UpdateFluidNeighborShape(runtime, position, s, 1, changedState); err != nil {
+					return err
+				}
+				continue
+			}
 			if target != p && worldgen.IsLeafBlock(state.Name) {
 				// The native shape callback schedules water (if present) before
 				// the leaf distance check. It does not change the leaf inline.

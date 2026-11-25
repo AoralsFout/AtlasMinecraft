@@ -14,14 +14,14 @@ import (
 func TestScheduledBlockFailureRetainsFluidPhase(t *testing.T) {
 	w, _ := mechanicsWorld(t)
 	p := worldgen.FeaturePosition{X: 8, Y: 64, Z: 8}
-	farmland, err := BlockStateID("minecraft:farmland", nil)
+	observer, err := BlockStateID("minecraft:observer", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	w.blockUpdateMu.Lock()
-	_, err = w.editBlock(setBlockMsg{x: p.X, y: p.Y, z: p.Z, state: farmland, raw: true, flags: 2})
+	_, err = w.editBlock(setBlockMsg{x: p.X, y: p.Y, z: p.Z, state: observer, raw: true, flags: 2})
 	if err == nil {
-		err = w.scheduledTicks.scheduleBlock(p, "minecraft:farmland", 0, 0)
+		err = w.scheduledTicks.scheduleBlock(p, "minecraft:observer", 0, 0)
 	}
 	if err == nil {
 		err = w.scheduledTicks.schedule(worldgen.FeaturePosition{X: 9, Y: 64, Z: 8}, worldgen.FluidWater, 0)
@@ -133,14 +133,14 @@ func TestLiveTickRetriesFailedBlockWhileSandAndWaterAdvance(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	farmland, err := BlockStateID("minecraft:farmland", nil)
+	observer, err := BlockStateID("minecraft:observer", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.SetBlock(9, 64, 9, farmland); err != nil {
+	if err := w.SetBlock(9, 64, 9, observer); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: 9, Y: 64, Z: 9}, "minecraft:farmland", 2, 0); err != nil {
+	if err := w.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: 9, Y: 64, Z: 9}, "minecraft:observer", 2, 0); err != nil {
 		t.Fatal(err)
 	}
 	sand, err := BlockStateID("minecraft:sand", nil)
@@ -154,7 +154,7 @@ func TestLiveTickRetriesFailedBlockWhileSandAndWaterAdvance(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = w.TickPlayers(centers, 1)
-	if !errors.Is(err, worldgen.ErrUnsupportedScheduledBlock) || !strings.Contains(err.Error(), "minecraft:farmland at 9,64,9") {
+	if !errors.Is(err, worldgen.ErrUnsupportedScheduledBlock) || !strings.Contains(err.Error(), "minecraft:observer at 9,64,9") {
 		t.Fatalf("live tick should report the failed request, got %v", err)
 	}
 	flow, err := BlockStateID("minecraft:water", map[string]string{"level": "1"})
@@ -170,7 +170,7 @@ func TestLiveTickRetriesFailedBlockWhileSandAndWaterAdvance(t *testing.T) {
 	check(12, -48, 8, StateAir)
 	check(16, -45, 8, flow)
 	w.scheduledTicks.mu.Lock()
-	queued := w.scheduledTicks.blocks.Has(tickqueue.Position{X: 9, Y: 64, Z: 9}, "minecraft:farmland")
+	queued := w.scheduledTicks.blocks.Has(tickqueue.Position{X: 9, Y: 64, Z: 9}, "minecraft:observer")
 	w.scheduledTicks.mu.Unlock()
 	if !queued {
 		t.Fatal("failed request was lost")

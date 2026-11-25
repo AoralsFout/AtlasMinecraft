@@ -27,14 +27,7 @@ func (r *fluidRuntime) DestroyKelpBlock(p worldgen.FeaturePosition, state worldg
 		return err
 	}
 	if entry == nil {
-		v := r.world.store.vanilla
-		v.mu.Lock()
-		root, _ := v.root.Object()
-		data, _ := root.Object("Data")
-		rules, _ := data.Object("GameRules")
-		value, exists := rules.Text("doTileDrops")
-		v.mu.Unlock()
-		drops := !exists || strings.EqualFold(value, "true")
+		drops := strings.EqualFold(r.world.gameRule("doTileDrops", "true"), "true")
 		if err := r.world.ensureTickRandom(); err != nil {
 			return err
 		}
@@ -68,8 +61,12 @@ func (r *fluidRuntime) DestroyKelpBlock(p worldgen.FeaturePosition, state worldg
 }
 
 func updateKelpJournal(actor *Region, ch *Chunk, key string, entry nbt.Object) error {
+	return updateDropJournal(actor, ch, kelpBreakJournal, key, entry)
+}
+
+func updateDropJournal(actor *Region, ch *Chunk, journal, key string, entry nbt.Object) error {
 	root, _ := ch.anvilRoot.Object()
-	old, existed := root[kelpBreakJournal]
+	old, existed := root[journal]
 	pending, _ := old.Object()
 	next := make(nbt.Object, len(pending)+1)
 	for k, v := range pending {
@@ -81,15 +78,15 @@ func updateKelpJournal(actor *Region, ch *Chunk, key string, entry nbt.Object) e
 		next[key] = nbt.Tag{Type: nbt.Compound, Value: entry}
 	}
 	if len(next) == 0 {
-		delete(root, kelpBreakJournal)
+		delete(root, journal)
 	} else {
-		root[kelpBreakJournal] = nbt.Tag{Type: nbt.Compound, Value: next}
+		root[journal] = nbt.Tag{Type: nbt.Compound, Value: next}
 	}
 	if err := actor.world.store.vanilla.persistChunk(ch); err != nil {
 		if existed {
-			root[kelpBreakJournal] = old
+			root[journal] = old
 		} else {
-			delete(root, kelpBreakJournal)
+			delete(root, journal)
 		}
 		return err
 	}
@@ -174,17 +171,31 @@ func (r *fluidRuntime) finishKelpBreak(key string, entry nbt.Object) error {
 	return r.world.fallingEntityOperation(p.X>>4, p.Z>>4, func(actor *Region, ch *Chunk) error { return updateKelpJournal(actor, ch, key, nil) })
 }
 
-func (r *fluidRuntime) recoverKelpBreaks(live bool) error {
+func (r *fluidRuntime) recoverBlockDrops(live bool) error {
 	return r.recoverJournals(false, live, func(key chunkKey) error {
-		var pending nbt.Object
+		var pending, leaves nbt.Object
 		if err := r.world.fallingEntityOperation(key.x, key.z, func(_ *Region, ch *Chunk) error {
 			root, _ := ch.anvilRoot.Object()
 			items, _ := root.Object(kelpBreakJournal)
 			var err error
 			pending, err = cloneEntityData(items)
+			if err != nil {
+				return err
+			}
+			leafItems, _ := root.Object(leafDecayJournal)
+			leaves, err = cloneEntityData(leafItems)
 			return err
 		}); err != nil {
 			return err
+		}
+		for id, tag := range leaves {
+			entry, ok := tag.Object()
+			if !ok {
+				return fmt.Errorf("invalid leaf decay intent")
+			}
+			if err := r.finishLeafDecay(key, id, entry); err != nil {
+				return err
+			}
 		}
 		for id, tag := range pending {
 			entry, ok := tag.Object()

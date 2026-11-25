@@ -8,6 +8,9 @@ import "fmt"
 // duplicate callbacks until the owning ProtoChunkTicks queue deduplicates them.
 func updateTemplateShape(world FeatureBlockWorld, p FeaturePosition, state SurfaceBlockState, direction string, neighbor SurfaceBlockState, updateShape structureTemplateShapeUpdater) (SurfaceBlockState, error) {
 	w := generationShapeWorld{world}
+	if state.Name == "minecraft:farmland" && direction == "up" {
+		return state, updateFarmlandCover(w, p, neighbor)
+	}
 	if kelpBlock(state.Name) {
 		return updateKelpNeighborShape(w, p, state, direction, neighbor)
 	}

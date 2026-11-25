@@ -13,8 +13,9 @@ import (
 var biomeClimateData []byte
 
 type biomeClimate struct {
-	Temperature float32 `json:"temperature"`
-	Modifier    string  `json:"modifier"`
+	HasPrecipitation bool    `json:"has_precipitation"`
+	Temperature      float32 `json:"temperature"`
+	Modifier         string  `json:"modifier"`
 }
 
 var biomeClimateOnce sync.Once
@@ -138,4 +139,21 @@ func BiomeTemperatureAt(biomeName string, x, y, z int32) (float32, error) {
 func BiomeColdAt(biomeName string, x, y, z int32) (bool, error) {
 	value, err := BiomeTemperatureAt(biomeName, x, y, z)
 	return value < float32(0.15), err
+}
+
+// BiomeRainsAt applies Biome.getPrecipitationAt to a position in a built-in biome.
+func BiomeRainsAt(name string, x, y, z int32) (bool, error) {
+	climates, err := loadBiomeClimates()
+	if err != nil {
+		return false, err
+	}
+	c, ok := climates[strings.TrimPrefix(name, "minecraft:")]
+	if !ok {
+		return false, fmt.Errorf("unknown biome %q", name)
+	}
+	if !c.HasPrecipitation {
+		return false, nil
+	}
+	cold, err := BiomeColdAt(name, x, y, z)
+	return !cold, err
 }

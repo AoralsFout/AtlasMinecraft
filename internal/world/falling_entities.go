@@ -106,9 +106,9 @@ func (r *Region) runFallingEntityOperation(op fallingEntityOperation) {
 	err := op.run(r, ch)
 	if h := ch.scheduledTicks; h != nil {
 		root, _ := ch.anvilRoot.Object()
-		falling, kelp := recoveryJournals(root)
+		falling, drops := recoveryJournals(root)
 		h.owner.mu.Lock()
-		h.fallingRecovery, h.kelpRecovery = falling, kelp
+		h.fallingRecovery, h.dropRecovery = falling, drops
 		h.owner.mu.Unlock()
 	}
 	op.result <- err

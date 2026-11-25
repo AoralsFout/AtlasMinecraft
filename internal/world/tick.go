@@ -10,10 +10,11 @@ import (
 // A nil predicate disables its phase for this tick.
 type TickChunks struct {
 	Blocks   func(x, z int32) bool // Scheduled blocks and fluids.
+	Random   func(x, z int32) bool // Random block and fluid ticks.
 	Entities func(x, z int32) bool
 }
 
-// Tick advances one game tick, runs scheduled blocks and fluids, then moves
+// Tick advances one game tick, runs scheduled blocks, fluids and random ticks, then moves
 // falling entities. A failed phase leaves the clock advanced and stops the
 // remaining phases for this dimension. A zero TickChunks advances time only.
 func (w *World) Tick(chunks TickChunks) error {
@@ -42,6 +43,17 @@ func (w *World) tickLocked(chunks TickChunks, live bool) error {
 		}
 		if failure != nil {
 			failure = fmt.Errorf("scheduled updates: %w", failure)
+			if !live {
+				return failure
+			}
+		}
+	}
+	if chunks.Random != nil {
+		if runtime == nil {
+			runtime = &fluidRuntime{world: w, settings: w.fluidSettings()}
+		}
+		if err := runtime.tickRandomChunks(chunks); err != nil {
+			failure = errors.Join(failure, fmt.Errorf("random ticks: %w", err))
 			if !live {
 				return failure
 			}

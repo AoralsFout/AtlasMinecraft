@@ -55,7 +55,7 @@ func (w *World) prepareScheduledLocked(eligible func(int32, int32) bool, live bo
 	var failures []error
 	for _, prepare := range []func() error{
 		func() error { return r.recoverFallingSpawns(live) },
-		func() error { return r.recoverKelpBreaks(live) },
+		func() error { return r.recoverBlockDrops(live) },
 		func() error { return o.activateChunks(eligible, r.postProcess, live) },
 	} {
 		if err := prepare(); err != nil {
@@ -121,10 +121,11 @@ func (w *World) ensureTickRandom() error {
 	if w.tickRandom != nil {
 		return nil
 	}
-	var seed [8]byte
+	var seed [12]byte
 	if _, err := rand.Read(seed[:]); err != nil {
 		return err
 	}
+	w.randomPosition = binary.LittleEndian.Uint32(seed[8:])
 	w.tickRandom = worldgen.NewLegacyRandom(int64(binary.LittleEndian.Uint64(seed[:])))
 	return nil
 }
@@ -200,16 +201,21 @@ func (r *fluidRuntime) SetBlock(p worldgen.FeaturePosition, s worldgen.SurfaceBl
 // Read the light engine's immutable snapshot; terrain height is not a proxy
 // for brightness (e.g. underground torches and transparent roofs).
 func (r *fluidRuntime) FeatureRawBrightness(p worldgen.FeaturePosition, skyDarkening int32) (int32, error) {
+	sky, block, err := r.rawLightAt(p)
+	return max(0, sky-skyDarkening, block), err
+}
+
+func (r *fluidRuntime) rawLightAt(p worldgen.FeaturePosition) (int32, int32, error) {
 	if r.world.lighting == nil {
-		return 0, fmt.Errorf("runtime survival requires lighting")
+		return 0, 0, fmt.Errorf("runtime survival requires lighting")
 	}
 	data := r.world.lighting.Snapshot(light.Position{X: p.X >> 4, Z: p.Z >> 4})
 	if data == nil {
-		return 0, fmt.Errorf("runtime survival light column is unavailable at %v", p)
+		return 0, 0, fmt.Errorf("runtime survival light column is unavailable at %v", p)
 	}
 	layer := int((p.Y-r.world.MinBuildHeight())>>4) + 1
 	if layer < 0 || layer >= len(data.Sky) || layer >= len(data.Block) {
-		return 0, fmt.Errorf("runtime survival light position outside stored sections: %v", p)
+		return 0, 0, fmt.Errorf("runtime survival light position outside stored sections: %v", p)
 	}
 	index := int((p.Y&15)<<8 | (p.Z&15)<<4 | (p.X & 15))
 	nibble := func(array []byte) int32 {
@@ -218,8 +224,9 @@ func (r *fluidRuntime) FeatureRawBrightness(p worldgen.FeaturePosition, skyDarke
 		}
 		return int32(array[index>>1] >> uint((index&1)*4) & 15)
 	}
-	return max(0, nibble(data.Sky[layer])-skyDarkening, nibble(data.Block[layer])), nil
+	return nibble(data.Sky[layer]), nibble(data.Block[layer]), nil
 }
+
 func (r *fluidRuntime) SetFluidBlock(p worldgen.FeaturePosition, s worldgen.SurfaceBlockState, flags int32) error {
 	return r.set(p, s, flags, 512)
 }

@@ -70,6 +70,7 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 			d, ok := tickets.chunks[chunkKey{x, z}]
 			return ok && d <= distance+1
 		},
+		Random:   w.randomTickEligibleLocked,
 		Entities: w.entityTickEligible,
 	}, true)
 }
@@ -88,6 +89,10 @@ func (w *World) entityTickEligible(x, z int32) bool {
 func (w *World) RandomTickEligible(x, z int32) bool {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
+	return w.randomTickEligibleLocked(x, z)
+}
+
+func (w *World) randomTickEligibleLocked(x, z int32) bool {
 	if !w.entityTickEligible(x, z) {
 		return false
 	}

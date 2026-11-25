@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // scheduledTickOwner owns both scheduled block and fluid queues. Their levels
@@ -32,6 +33,7 @@ type scheduledTickOwner struct {
 // This handle is immutable except under owner.mu. The region owns its Chunk,
 // while this handle lets persistence request a detached queue snapshot.
 type chunkScheduledTicks struct {
+	randomSections          atomic.Uint64 // low bits: sampling, high bits: implemented callbacks
 	owner                   *scheduledTickOwner
 	queue                   *tickqueue.Chunk[worldgen.FluidType]
 	blocks                  *tickqueue.Chunk[string]
@@ -44,7 +46,7 @@ type chunkScheduledTicks struct {
 	savedTime               int64
 	activationRetry         int64
 	fallingRecovery         bool
-	kelpRecovery            bool
+	dropRecovery            bool
 }
 
 const simulationRetryDelay = 20 // game ticks between retries of a failed live callback
@@ -79,8 +81,13 @@ func parseScheduledFluid(name string) (worldgen.FluidType, bool) {
 func (o *scheduledTickOwner) register(c *Chunk) *chunkScheduledTicks {
 	root, _ := c.anvilRoot.Object()
 	h := &chunkScheduledTicks{owner: o, x: c.cx, z: c.cz, queue: tickqueue.NewChunk(tickqueue.DecodeSavedNBT(root["fluid_ticks"], c.cx, c.cz, parseScheduledFluid))}
+	for si, section := range c.sect {
+		if section != nil {
+			h.publishSection(si, section)
+		}
+	}
 	h.blocks = tickqueue.NewChunk(tickqueue.DecodeSavedNBT(root["block_ticks"], c.cx, c.cz, parseScheduledBlock))
-	h.fallingRecovery, h.kelpRecovery = recoveryJournals(root)
+	h.fallingRecovery, h.dropRecovery = recoveryJournals(root)
 	sections, _ := root["PostProcessing"].Elements()
 	h.postSections = len(sections)
 	for section, list := range sections {
@@ -106,10 +113,11 @@ func (o *scheduledTickOwner) register(c *Chunk) *chunkScheduledTicks {
 	return h
 }
 
-func recoveryJournals(root nbt.Object) (falling, kelp bool) {
+func recoveryJournals(root nbt.Object) (falling, drops bool) {
 	entries, _ := root[fallingJournal].Elements()
 	items, _ := root.Object(kelpBreakJournal)
-	return len(entries) != 0, len(items) != 0
+	leaves, _ := root.Object(leafDecayJournal)
+	return len(entries) != 0, len(items) != 0 || len(leaves) != 0
 }
 
 func (o *scheduledTickOwner) recoveryChunks(falling bool) []chunkKey {
@@ -117,7 +125,7 @@ func (o *scheduledTickOwner) recoveryChunks(falling bool) []chunkKey {
 	defer o.mu.Unlock()
 	var keys []chunkKey
 	for _, h := range o.loadOrder {
-		if falling && h.fallingRecovery || !falling && h.kelpRecovery {
+		if falling && h.fallingRecovery || !falling && h.dropRecovery {
 			keys = append(keys, chunkKey{h.x, h.z})
 		}
 	}

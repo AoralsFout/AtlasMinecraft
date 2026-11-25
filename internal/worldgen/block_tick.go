@@ -65,6 +65,16 @@ func TickScheduledBlock(world ScheduledBlockWorld, p FeaturePosition, name strin
 	switch blockTickHandlers[name] {
 	case "dtb":
 		return nil // BlockBehaviour.tick is empty.
+	case "div":
+		above, err := world.BlockAt(treeOffset(p, 0, 1, 0))
+		if err != nil {
+			return err
+		}
+		covered, err := blocksFarmland(above)
+		if err != nil || !covered {
+			return err
+		}
+		return TurnFarmlandToDirt(world, p)
 	case "diu":
 		return tickFallingBlock(world, p, state)
 	case "dgd":

@@ -10,6 +10,7 @@ Atlas 是面向 Minecraft Java 1.21.1 的 Go 服务端。项目的启动方式�
 | 世界、区块、区域、实体、地物与结构等术语 | [术语表](../GLOSSARY.md) |
 | 网络包编号和字段 | [协议说明](protocol/README.md) |
 | 世界生成现状与验证方法 | [世界生成概览](worldgen/README.md) |
+| 游戏刻当前执行哪些行为、与原版还有哪些差异 | [Java 1.21.1 世界模拟调查与实现顺序](world_tick_1.21.1.md) |
 | 结构如何选址、拼装和保存 | [结构生成流水线](worldgen/structure_pipeline.md) |
 | 下界、末地与传送门 | [维度流水线](worldgen/dimension_pipeline.md) |
 | 初始动物生成 | [动物生成说明](worldgen/initial_animals_1.21.1.md) |

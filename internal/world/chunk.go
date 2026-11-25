@@ -37,10 +37,11 @@ func isAir(state uint32) bool {
 // Section is one 16x16x16 chunk section. bits==0 means uniform: the whole
 // section is palette[0] and no packed data exists.
 type Section struct {
-	nonAir  int16
-	bits    uint8
-	palette []uint32
-	data    []int64
+	nonAir                                       int16
+	tickingBlocks, tickingFluids, supportedTicks int16
+	bits                                         uint8
+	palette                                      []uint32
+	data                                         []int64
 }
 
 func newUniformSection(v uint32) *Section {
@@ -99,6 +100,9 @@ func (s *Section) set(i int, v uint32) {
 	if old == v {
 		return
 	}
+	s.tickingBlocks += int16(randomStateFlags[v]&1) - int16(randomStateFlags[old]&1)
+	s.tickingFluids += int16((randomStateFlags[v]>>2)&1) - int16((randomStateFlags[old]>>2)&1)
+	s.supportedTicks += supportedTickCount(v) - supportedTickCount(old)
 	if !isAir(old) && isAir(v) {
 		s.nonAir--
 	} else if isAir(old) && !isAir(v) {
@@ -254,6 +258,9 @@ func (c *Chunk) SetBlock(lx, lz int, y int32, state uint32) {
 		c.sect[si] = sec
 	}
 	sec.set(localIndexOf(lx, int(y), lz), state)
+	if c.scheduledTicks != nil {
+		c.scheduledTicks.publishSection(si, sec)
+	}
 	c.removeReplacedBlockEntity(lx, lz, y, old, state)
 	c.blockRevision++
 	c.dirty = true

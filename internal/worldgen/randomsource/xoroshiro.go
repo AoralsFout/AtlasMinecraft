@@ -19,6 +19,20 @@ func NewXoroshiro(seed int64) *Xoroshiro {
 	return NewXoroshiroPair(mixStafford13(lo), mixStafford13(hi))
 }
 
+// NewNamedSequence follows RandomSequence.createSequence for a saved loot table.
+func NewNamedSequence(seed int64, name string, includeID bool) *Xoroshiro {
+	lo := uint64(seed) ^ 0x6a09e667f3bcc909
+	hi := lo + 0x9e3779b97f4a7c15
+	if includeID {
+		digest := md5.Sum([]byte(name))
+		lo ^= binary.BigEndian.Uint64(digest[:8])
+		hi ^= binary.BigEndian.Uint64(digest[8:])
+	}
+	return NewXoroshiroPair(mixStafford13(lo), mixStafford13(hi))
+}
+
+func (r *Xoroshiro) State() (uint64, uint64) { return r.lo, r.hi }
+
 func NewXoroshiroPair(lo, hi uint64) *Xoroshiro {
 	if lo|hi == 0 {
 		lo, hi = 0x9e3779b97f4a7c15, 0x6a09e667f3bcc909

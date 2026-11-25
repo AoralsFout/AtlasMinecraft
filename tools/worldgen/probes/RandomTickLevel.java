@@ -1,0 +1,375 @@
+import java.lang.reflect.Field;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
+import sun.misc.Unsafe;
+
+/** Isolated chunk I/O for the original 1.21.1 ServerLevel.tickChunk. */
+public final class RandomTickLevel extends aqu {
+    private static final int CX = -3, CZ = 2;
+    private static final jd CENTER = new jd(CX * 16 + 8, 69, CZ * 16 + 8);
+    private dvi chunk;
+    private eyq<dfy> blockTicks;
+    private eyq<epd> fluidTicks;
+    private int time, light;
+    private Map<jd,dtc> border;
+    private boolean rainy;
+    private jm<ddw> biome;
+    private jz<ddw> biomes;
+    private long order;
+    private List<int[]> samples, precipitation;
+    private LinkedHashSet<jd> tracked;
+
+    // Servers normally allocate many unrelated managers. The launcher allocates this
+    // instance without its constructor, then setup provides the fields under test.
+    public RandomTickLevel() {
+        super(null, null, null, null, null, null, null, false, 0L, null, false, null);
+    }
+
+    private static Field field(Class<?> type, String name) throws ReflectiveOperationException {
+        Field field = type.getDeclaredField(name);
+        field.setAccessible(true);
+        return field;
+    }
+
+    private void reset() throws Exception {
+        Unsafe unsafe = (Unsafe) field(Unsafe.class, "theUnsafe").get(null);
+        chunk = (dvi) unsafe.allocateInstance(dvi.class);
+        dcd pos = new dcd(CX, CZ);
+        dvj[] sections = new dvj[24];
+        // Obtain SECTION_STATES by reflection because its class and a field
+        // in the obfuscated outer class both use the name d.
+        var strategy = (dvq.d) Class.forName("dvq$d").getField("d").get(null);
+        for (int i = 0; i < sections.length; i++) {
+            sections[i] = new dvj(new dvq<>(dfy.q, dga.a.o(), strategy), null);
+        }
+        field(duy.class, "d").set(chunk, pos);
+        field(duy.class, "l").set(chunk, dcy.e(-64, 384));
+        field(duy.class, "m").set(chunk, sections);
+        field(dcw.class, "s").set(this, new eqh(this));
+        blockTicks = new eyq<>(ignored -> true, () -> bnc.a);
+        blockTicks.a(pos, new eyo<>());
+        fluidTicks = new eyq<>(ignored -> true, () -> bnc.a);
+        fluidTicks.a(pos, new eyo<>());
+        tracked = new LinkedHashSet<>();
+        border = new HashMap<>();
+        rainy = false;
+        time = 0;
+        order = 0;
+        t = 1779033703;
+    }
+
+    public static int[] stateFlags() {
+        int[] flags = new int[dfy.q.c()];
+        for (int i = 0; i < flags.length; i++) {
+            dtc state = dfy.a(i);
+            epe fluid = state.u();
+            flags[i] = (state.v() ? 1 : 0) | (fluid.f() ? 2 : 0) | (fluid.c() ? 0 : 4)
+                    | (fluid.a(awk.a) ? 8 : 0) | (state.a(awe.cy) ? 16 : 0);
+        }
+        return flags;
+    }
+
+    @Override public boolean ad() { return rainy; }
+    @Override public boolean ac() { return false; } // no thunderstorms
+    @Override public boolean h(jd p) { return light == 15; }
+    @Override public jm<ddw> t(jd p) { return biome; }
+    @Override public int a(dyy.a type, int x, int z) {
+        for (int y = 319; y >= -64; y--) if (type.e().test(a_(new jd(x,y,z)))) return y + 1;
+        return -64;
+    }
+    @Override public List<bsr> a(bsr except, ewx box, java.util.function.Predicate<? super bsr> test) {
+        return List.of();
+    }
+    @Override public void a(jm<dxz> event, exc pos, dxz.a context) {}
+    @Override public bnf ag() { return bnc.a; }
+    @Override public int b(jd pos, int skyDarken) { return light; }
+    @Override public epe b_(jd pos) { return a_(pos).u(); }
+    @Override public dtc a_(jd pos) {
+        if (!inside(pos)) return border.getOrDefault(pos,dga.a.o());
+        return section(pos).a(pos.u() & 15, pos.v() & 15, pos.w() & 15);
+    }
+
+    private static boolean inside(jd pos) {
+        return (pos.u() >> 4) == CX && (pos.w() >> 4) == CZ && pos.v() >= -64 && pos.v() < 320;
+    }
+
+    private dvj section(jd pos) { return chunk.b(chunk.e(pos.v())); }
+
+    private dtc put(jd pos, dtc state) {
+        if (!inside(pos)) throw new IllegalStateException("write outside chunk " + pos);
+        return section(pos).a(pos.u() & 15, pos.v() & 15, pos.w() & 15, state);
+    }
+
+    @Override public boolean a(jd pos, dtc state, int flags) {
+        dtc old = put(pos, state);
+        if (old == state) return false;
+        if (!tracked.contains(pos)) throw new IllegalStateException("untracked block change " + pos);
+        if (old.b() != state.b()) state.a(this, pos, old, false);
+        // Run the original neighbor shape callbacks after onPlace.
+        state.a(this, pos, flags & ~33);
+        return true;
+    }
+
+    @Override public void a(jd pos, dfy block, int delay) {
+        blockTicks.a(new eyt<>(block, pos.j(), time + delay, order++));
+    }
+
+    @Override public void a(jd pos, epd fluid, int delay) {
+        fluidTicks.a(new eyt<>(fluid, pos.j(), time + delay, order++));
+    }
+
+    @Override public jd a(int x, int y, int z, int mask) {
+        jd result = super.a(x, y, z, mask);
+        samples.add(coords(result));
+        return result;
+    }
+
+    @Override public void a(jd pos) {
+        // tickPrecipitation is the only non-section caller of getBlockRandomPos
+        // in clear weather. The output records its draw separately.
+        precipitation.add(samples.removeLast());
+    }
+
+    private static int[] coords(jd pos) { return new int[]{pos.u(), pos.v(), pos.w()}; }
+
+    private static int[] cell(jd pos, dtc state) {
+        return new int[]{pos.u(), pos.v(), pos.w(), dfy.i(state)};
+    }
+
+    private static dtc block(String name) { return lt.e.a(akr.a("minecraft:" + name)).o(); }
+
+    private void initial(jd pos, dtc state) {
+        if (!tracked.add(pos)) throw new IllegalStateException("duplicate position");
+        if (inside(pos)) put(pos, state); else border.put(pos.j(),state);
+    }
+
+    // Arrange an input at which vanilla's next section draw lands on target.
+    private static int aim(jd target) {
+        int bits = (target.u() & 15) | (target.w() & 15) << 8 | (target.v() & 15) << 16;
+        return ((bits << 2) - 1013904223) * 0xaaaaaaab;
+    }
+
+    private static long rawState(dyz runtime) throws ReflectiveOperationException {
+        return ((AtomicLong) field(dyz.class, "h").get(runtime)).get();
+    }
+
+    private Map<String,Object> step(int speed, Long seed, int brightness, jd target, int[][] edits) throws Exception {
+        time++;
+        light = brightness;
+        if (seed != null) field(dcw.class, "z").set(this, new dyz(seed));
+        dyz runtime = (dyz) z;
+        long inputSeed = rawState(runtime) ^ 0x5deece66dL;
+        if (target != null) t = aim(target);
+        int before = t;
+        samples = new ArrayList<>();
+        precipitation = new ArrayList<>();
+        for (int[] edit : edits) a(new jd(edit[0], edit[1], edit[2]), dfy.a(edit[3]), 3);
+        blockTicks.a(time, 65536, (pos, block) -> {
+            dtc state = a_(pos);
+            if (state.a(block)) state.a(this, pos, runtime);
+        });
+        super.a(chunk, speed);
+        long after = rawState(runtime);
+        Map<String,Object> row = new LinkedHashMap<>();
+        row.put("tick", time);
+        row.put("speed", speed);
+        row.put("seed", inputSeed);
+        row.put("lcgBefore", before);
+        row.put("lcgAfter", t);
+        row.put("rngAfter", after);
+        row.put("light", light);
+        row.put("edits", edits);
+        row.put("samples", samples);
+        row.put("precipitation", precipitation);
+        row.put("states", tracked.stream().mapToInt(pos -> dfy.i(a_(pos))).toArray());
+        return row;
+    }
+
+    private Map<String,Object> scene(String name, boolean recount) {
+        if (recount) for (dvj section : chunk.d()) section.g();
+        Map<String,Object> result = new LinkedHashMap<>();
+        result.put("name", name);
+        result.put("chunk", new int[]{CX, CZ});
+        result.put("recount", recount);
+        result.put("initial", tracked.stream().map(pos -> cell(pos, a_(pos))).toList());
+        return result;
+    }
+
+    public List<Map<String,Object>> capture(ka registries) throws Exception {
+        biomes = registries.d(lu.aF);
+        List<Map<String,Object>> cases = new ArrayList<>();
+        dtc leaf = block("oak_leaves");
+        dtc log = block("oak_log");
+        // Select the vanilla empty loot table. The drops call, decay test and
+        // removeBlock remain intact and cannot consume an independently seeded loot stream.
+        field(dtb.class, "aQ").set(leaf.b(), ern.a);
+        int[][] none = new int[0][];
+        reset();
+        jd trunk = CENTER.b(-1, 0, 0);
+        jd tip = CENTER.b(1, 0, 0);
+        initial(trunk, log);
+        initial(CENTER, leaf.a(dki.d, 1));
+        initial(tip, leaf.a(dki.d, 2));
+        initial(CENTER.b(4, 0, 4), leaf.a(dki.e, true));
+        initial(CENTER.b(-4, 0, -4), log);
+        initial(CENTER.b(-3, 0, -4), leaf.a(dki.d, 1));
+        var tree = scene("oak_log_removed", false);
+        List<Map<String,Object>> ticks = new ArrayList<>();
+        for (int i = 1; i <= 13; i++) {
+            jd target = i == 9 ? CENTER : i == 10 ? tip : null;
+            ticks.add(step(i <= 2 ? 0 : 3, 13L, 15, target,
+                i == 1 ? new int[][]{cell(trunk, dga.a.o())} : none));
+        }
+        tree.put("ticks", ticks);
+        cases.add(tree);
+
+        for (String layout : List.of("hydrated", "dry", "row", "cross", "diagonal")) {
+            reset();
+            dtc wheat = block("wheat");
+            initial(CENTER, wheat);
+            int moisture = layout.equals("dry") ? 0 : 7;
+            for (int x = -1; x <= 1; x++) for (int z = -1; z <= 1; z++) {
+                initial(CENTER.b(x, -1, z), block("farmland").a(div.b, moisture));
+            }
+            if (layout.equals("row") || layout.equals("cross")) initial(CENTER.b(1, 0, 0), wheat);
+            if (layout.equals("cross")) initial(CENTER.b(0, 0, 1), wheat);
+            if (layout.equals("diagonal")) initial(CENTER.b(1, 0, 1), wheat);
+            var crop = scene("wheat_" + layout, false);
+            ticks = new ArrayList<>();
+            for (int i = 0; i < 150; i++) {
+                int brightness = i == 1 ? 8 : i % 2 == 0 ? 9 : 15;
+                ticks.add(step(i == 0 ? 0 : 3, 193L + i, brightness, CENTER, none));
+                if (i > 1 && a_(CENTER).c(dht.f) == 7) {
+                    ticks.add(step(3, 13L, 15, CENTER, none));
+                    break;
+                }
+            }
+            if (a_(CENTER).c(dht.f) != 7) throw new IllegalStateException("wheat did not mature " + layout);
+            crop.put("ticks", ticks);
+            cases.add(crop);
+        }
+
+        for (boolean recount : new boolean[]{false, true}) {
+            reset();
+            initial(CENTER.b(0, -96, 0), block("water"));
+            initial(CENTER, leaf);
+            initial(CENTER.b(0, 32, 0), block("stone"));
+            initial(CENTER.b(0, 48, 0), block("wheat"));
+            var scanning = scene("section_order_" + (recount ? "recounted" : "live_edits"), recount);
+            ticks = new ArrayList<>();
+            for (int i = 0; i < 12; i++) {
+                ticks.add(step(i == 0 ? 0 : i == 1 ? 1 : i == 2 ? 6 : 3, (long) i, 8, null, none));
+            }
+            scanning.put("ticks", ticks);
+            cases.add(scanning);
+        }
+
+        reset();
+        jd naturalLeaf = CENTER.b(-6, -3, 1);
+        jd naturalTrunk = naturalLeaf.b(-1, 0, 0);
+        jd naturalWheat = CENTER.b(-1, 6, -7);
+        initial(naturalTrunk, log);
+        initial(naturalLeaf, leaf.a(dki.d, 1));
+        initial(naturalWheat, block("wheat").a(dht.f, 6));
+        for (int x = -1; x <= 1; x++) for (int z = -1; z <= 1; z++) {
+            initial(naturalWheat.b(x, -1, z), block("farmland").a(div.b, 7));
+        }
+        var continuous = scene("continuous_clear_chunk", false);
+        continuous.put("continuous", true);
+        ticks = new ArrayList<>();
+        for (int i = 1; i <= 16; i++) {
+            ticks.add(step(3, i == 1 ? 4L : null, 15, null,
+                i == 1 ? new int[][]{cell(naturalTrunk, dga.a.o())} : none));
+        }
+        if (!a_(naturalLeaf).i() || a_(naturalWheat).c(dht.f) != 7) {
+            throw new IllegalStateException("continuous scene lost its decay or growth event");
+        }
+        continuous.put("ticks", ticks);
+        cases.add(continuous);
+
+        reset();
+        jd wetLeaf = new jd(CX * 16 + 4, 73, CZ * 16 + 2);
+        jd wetPersistent = wetLeaf.e();
+        dtc wet = leaf.a(dki.f, true);
+        dtc persistent = wet.a(dki.e, true);
+        initial(wetLeaf, wet);
+        initial(wetPersistent, persistent);
+        var waterlogged = scene("waterlogged_leaf_decay", false);
+        // The first two samples visit the adjacent natural and persistent leaf.
+        t = 1197798;
+        waterlogged.put("ticks", List.of(step(3, 13L, 15, null, none)));
+        if (a_(wetLeaf) != block("water") || a_(wetPersistent) != persistent
+                || !fluidTicks.a(wetLeaf, epf.c) || !fluidTicks.a(wetPersistent, epf.c)) {
+            throw new IllegalStateException("unexpected waterlogged decay result or pending water ticks");
+        }
+        cases.add(waterlogged);
+        for (String layout : List.of("dry_bare", "dry_wheat", "water_corner", "water_below", "water_five",
+                "waterlogged_above", "flowing_border", "rain_plains", "rain_glass", "rain_desert", "rain_snowy_plains",
+                "covered", "cover_removed", "fence_gate")) {
+            cases.add(farmland(layout));
+        }
+        cases.add(soilBeforeWheat(true));
+        cases.add(soilBeforeWheat(false));
+        return cases;
+    }
+
+    private Map<String,Object> farmland(String layout) throws Exception {
+        reset();
+        jd soil = layout.equals("flowing_border") ? CENTER.b(7, 0, 0) : CENTER;
+        boolean drying = layout.startsWith("dry_");
+        initial(soil, block("farmland").a(div.b, drying ? 2 : 1));
+        switch (layout) {
+            case "dry_wheat" -> initial(soil.d(), block("wheat"));
+            case "water_corner" -> initial(soil.b(-4, 0, 4), block("water"));
+            case "water_below" -> initial(soil.e(), block("water"));
+            case "water_five" -> initial(soil.b(5, 0, 0), block("water"));
+            case "waterlogged_above" -> initial(soil.b(-4, 1, 4), block("oak_leaves").a(dki.f, true).a(dki.e, true));
+            case "flowing_border" -> initial(soil.b(4, 0, 0), block("water").a(dko.b, 3));
+            case "rain_glass" -> initial(soil.b(0, 3, 0), block("glass"));
+            case "covered", "cover_removed", "fence_gate" -> initial(soil.d(), block("air"));
+        }
+        var result = scene("farmland_" + layout, false);
+        rainy = layout.startsWith("rain_");
+        if (rainy) {
+            String climate = switch (layout) {
+                case "rain_desert" -> "desert";
+                case "rain_snowy_plains" -> "snowy_plains";
+                default -> "plains";
+            };
+            biome = biomes.c(akr.a("minecraft:" + climate)).orElseThrow();
+            result.put("rain", true);
+            result.put("biome", climate);
+        }
+        boolean cover = layout.equals("covered") || layout.equals("cover_removed") || layout.equals("fence_gate");
+        List<Map<String,Object>> ticks = new ArrayList<>();
+        for (int i = 0; i < (drying ? 4 : 2); i++) {
+            int[][] changes = new int[0][];
+            if (cover && i == 0) {
+                changes = new int[][]{cell(soil.d(), block(layout.equals("fence_gate") ? "oak_fence_gate" : "stone"))};
+            }
+            if (layout.equals("cover_removed") && i == 1) changes = new int[][]{cell(soil.d(), block("air"))};
+            var row = step(cover ? 0 : 1, 13L, 15, soil, changes);
+            if (cover) row.put("pendingFarmland", blockTicks.a(soil, block("farmland").b()));
+            ticks.add(row);
+        }
+        result.put("ticks", ticks);
+        return result;
+    }
+
+    private Map<String,Object> soilBeforeWheat(boolean irrigated) throws Exception {
+        reset();
+        jd soil = new jd(CX * 16 + 3, 66, CZ * 16 + 2);
+        initial(soil, block("farmland"));
+        initial(soil.d(), block("wheat"));
+        if (irrigated) initial(soil.b(4, 0, 4), block("water"));
+        var result = scene(irrigated ? "farmland_before_wheat" : "farmland_before_wheat_dry", false);
+        // The two native samples select the soil then its crop. At seed 70 the
+        // crop passes nextInt(7) on wet soil and fails nextInt(13) on dry soil.
+        t = 586128;
+        result.put("ticks", List.of(step(2, 70L, 15, null, new int[0][])));
+        if (a_(soil).c(div.b) != (irrigated ? 7 : 0) || a_(soil.d()).c(dht.f) != (irrigated ? 1 : 0)) {
+            throw new IllegalStateException("unexpected soil/crop order");
+        }
+        return result;
+    }
+}

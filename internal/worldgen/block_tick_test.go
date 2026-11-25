@@ -97,11 +97,11 @@ func TestLeafScheduledTicksAgainstVanilla(t *testing.T) {
 
 func TestScheduledBlockUnsupportedStaleAndNoop(t *testing.T) {
 	p := FeaturePosition{8, 64, 8}
-	w := &fluidStepProbeWorld{blocks: map[FeaturePosition]SurfaceBlockState{p: structureState("farmland")}, floor: 63}
+	w := &fluidStepProbeWorld{blocks: map[FeaturePosition]SurfaceBlockState{p: structureState("observer")}, floor: 63}
 	if err := TickScheduledBlock(w, p, "minecraft:oak_leaves"); err != nil {
 		t.Fatal("stale block tick", err)
 	}
-	if err := TickScheduledBlock(w, p, "minecraft:farmland"); !errors.Is(err, ErrUnsupportedScheduledBlock) {
+	if err := TickScheduledBlock(w, p, "minecraft:observer"); !errors.Is(err, ErrUnsupportedScheduledBlock) {
 		t.Fatal("unsupported tick silently consumed", err)
 	}
 	w.blocks[p] = structureState("stone")

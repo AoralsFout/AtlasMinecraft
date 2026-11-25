@@ -6,6 +6,9 @@ import "unicode/utf16"
 // generation paths that intentionally retain Java's original LCG behavior.
 type LegacyRandom struct{ seed uint64 }
 
+// State returns the internal 48-bit state for deterministic reference replays.
+func (r *LegacyRandom) State() uint64 { return r.seed }
+
 const legacyMask uint64 = (1 << 48) - 1
 
 func NewLegacyRandom(seed int64) *LegacyRandom {

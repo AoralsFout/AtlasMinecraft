@@ -43,6 +43,8 @@ type World struct {
 	activeJobs      atomic.Int64
 	dimension       dimensionSettings
 	scheduledTicks  *scheduledTickOwner
+	randomPosition  uint32
+	randomSequences *lootSequences
 	tickRandom      *worldgen.LegacyRandom // runtime stream, independent of terrain RNG
 	fallingEntities fallingEntityOrder
 	simulation      atomic.Pointer[simulationTickets]
@@ -92,10 +94,13 @@ func newWorld(hub HubView, genWorkers int, store *Store, meta worldMeta) *World 
 		workers:        genWorkers,
 		done:           make(chan struct{}),
 	}
+	w.randomSequences = &lootSequences{}
 	w.dimension, _ = builtinDimension("minecraft:overworld")
 	if store != nil {
 		w.dimension = store.vanilla.dimension
 		w.seed = store.vanilla.seed
+		w.randomSequences.dir = store.vanilla.dir
+		w.randomSequences.seed = w.seed
 		w.loadChunk = store.vanilla.loadChunk
 		if store.vanilla.normal != nil {
 			store.vanilla.normal.SetTerrainWorkers(genWorkers)
@@ -484,7 +489,7 @@ func (w *World) Save() error {
 	w.stateMu.RLock()
 	m := w.meta
 	w.stateMu.RUnlock()
-	return w.store.SaveMeta(m)
+	return errors.Join(w.store.SaveMeta(m), w.randomSequences.save())
 }
 
 func (w *World) Close() error {
@@ -507,7 +512,7 @@ func (w *World) Close() error {
 			w.stateMu.RLock()
 			meta := w.meta
 			w.stateMu.RUnlock()
-			w.closeErr = errors.Join(w.closeErr, w.store.SaveMeta(meta), w.store.Close())
+			w.closeErr = errors.Join(w.closeErr, w.store.SaveMeta(meta), w.randomSequences.save(), w.store.Close())
 		}
 	})
 	return w.closeErr

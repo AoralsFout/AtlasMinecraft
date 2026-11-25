@@ -26,6 +26,7 @@ func (s *Server) AddWorld(w *world.World) error {
 	if _, exists := s.worlds[name]; exists {
 		return fmt.Errorf("dimension %s already registered", name)
 	}
+	w.ShareRandomSequences(s.World)
 	s.worlds[name] = w
 	return nil
 }

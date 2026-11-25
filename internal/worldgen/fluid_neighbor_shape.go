@@ -5,6 +5,9 @@ package worldgen
 // Redstone and other delayed families still need their scheduled handlers.
 func UpdateFluidNeighborShape(world FeatureBlockWorld, p FeaturePosition, state SurfaceBlockState, face int, neighbor SurfaceBlockState) (SurfaceBlockState, error) {
 	direction := [6]string{"down", "up", "north", "south", "west", "east"}[face]
+	if state.Name == "minecraft:farmland" && direction == "up" {
+		return state, updateFarmlandCover(world, p, neighbor)
+	}
 	if kelpBlock(state.Name) {
 		return updateKelpNeighborShape(world, p, state, direction, neighbor)
 	}

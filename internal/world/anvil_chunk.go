@@ -86,8 +86,15 @@ func chunkFromAnvilBounds(name string, root nbt.Tag, cx, cz, minY, maxY int32, h
 					return nil, fmt.Errorf("section %d block data missing", y)
 				}
 			}
-			if err := decodePalette(4096, palette, data, 4, func(i int, id uint32) { c.SetBlock(i&15, (i>>4)&15, int32(y*16)+int32(i>>8), id) }); err != nil {
+			var tickingFluids int16
+			if err := decodePalette(4096, palette, data, 4, func(i int, id uint32) {
+				tickingFluids += int16((randomStateFlags[id] >> 1) & 1)
+				c.SetBlock(i&15, (i>>4)&15, int32(y*16)+int32(i>>8), id)
+			}); err != nil {
 				return nil, fmt.Errorf("section %d blocks: %w", y, err)
+			}
+			if sec := c.sect[si]; sec != nil {
+				sec.tickingFluids = tickingFluids
 			}
 		}
 		if biomes, ok := so.Object("biomes"); ok {
