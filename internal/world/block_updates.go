@@ -87,10 +87,10 @@ func (w *World) updateBlockNeighbors(changed []BlockPosition) error {
 		queue = queue[1:]
 		var changedState worldgen.SurfaceBlockState
 		candidates := []BlockPosition{p}
-		for face := range directionOffsets {
+		for _, face := range fluidShapeOrder {
 			candidates = append(candidates, neighbor(p, face))
 		}
-		for _, target := range candidates {
+		for index, target := range candidates {
 			if target.Y < w.MinBuildHeight() || target.Y >= w.MaxBuildHeight() {
 				continue
 			}
@@ -123,6 +123,14 @@ func (w *World) updateBlockNeighbors(changed []BlockPosition) error {
 				}
 				continue
 			}
+			if target != p && worldgen.IsLeafBlock(state.Name) {
+				// The native shape callback schedules water (if present) before
+				// the leaf distance check. It does not change the leaf inline.
+				if err := worldgen.UpdateLeafNeighbor(runtime, position, s, changedState); err != nil {
+					return err
+				}
+				continue
+			}
 			if s.Properties["waterlogged"] == "true" {
 				if err := runtime.ScheduleFluidUpdate(position); err != nil {
 					return err
@@ -139,13 +147,7 @@ func (w *World) updateBlockNeighbors(changed []BlockPosition) error {
 						err = worldgen.NotifyBubbleBlockPlacement(runtime, position, s)
 					}
 				} else {
-					face := 0
-					for f := range directionOffsets {
-						if neighbor(target, f) == p {
-							face = f
-							break
-						}
-					}
+					face := oppositeFace(fluidShapeOrder[index-1])
 					var after worldgen.SurfaceBlockState
 					after, err = worldgen.UpdateFluidNeighborShape(runtime, position, s, face, changedState)
 					if err == nil {

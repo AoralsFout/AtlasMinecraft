@@ -64,6 +64,38 @@ func TestDoorPlacementUseCollisionAndSupport(t *testing.T) {
 	}
 }
 
+func TestDigLogUpdatesLeavesAcrossChunkBoundary(t *testing.T) {
+	s, p := interactionServer(t)
+	w := s.World
+	// The log is the last block of chunk 0. The leaf in chunk 1 must
+	// receive a scheduled update through the same packet path as a player.
+	p.SetPos(14.5, -60, 8.5, 0, 0, true)
+	for z := int32(-1); z <= 1; z++ {
+		if _, err := w.LoadChunk(2, z); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.SetBlock(15, -60, 8, stateID(t, "oak_log", nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetBlock(16, -60, 8, stateID(t, "oak_leaves", map[string]string{"distance": "1"})); err != nil {
+		t.Fatal(err)
+	}
+	s.handleDig(p, proto.NewWriter().VarInt(0).I64(proto.PackPosition(15, -60, 8)).I8(1).VarInt(1).Payload())
+	assertInteractionState(t, w, 15, -60, 8, world.StateAir)
+	if got := blockAt(t, w, 16, -60, 8).Properties["distance"]; got != "1" {
+		t.Fatalf("leaf distance changed before game tick: %s", got)
+	}
+	p.SetPlayReady(true)
+	s.Cfg.SimulationDistance = 2
+	if err := s.TickWorlds(); err != nil {
+		t.Fatal(err)
+	}
+	if got := blockAt(t, w, 16, -60, 8).Properties["distance"]; got != "7" {
+		t.Fatalf("leaf distance after removing only log: %s", got)
+	}
+}
+
 func TestDoorUpperHalfCannotIntersectAnotherPlayer(t *testing.T) {
 	s, p := interactionServer(t)
 	p.SetHotbarSlot(36, stateID(t, "oak_door", nil))

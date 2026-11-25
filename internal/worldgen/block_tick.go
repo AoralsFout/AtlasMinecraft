@@ -96,7 +96,7 @@ func scheduledLeafDistance(state SurfaceBlockState) int {
 	if treeTags["logs"][state.Name] {
 		return 0
 	}
-	if blockTickHandlers[state.Name] == "dki" {
+	if IsLeafBlock(state.Name) {
 		if distance, err := strconv.Atoi(state.Properties["distance"]); err == nil {
 			return distance
 		}
@@ -104,10 +104,12 @@ func scheduledLeafDistance(state SurfaceBlockState) int {
 	return 7
 }
 
-func updateRuntimeLeafShape(world FeatureBlockWorld, p FeaturePosition, state, neighbor SurfaceBlockState) (SurfaceBlockState, error) {
+func IsLeafBlock(name string) bool { return blockTickHandlers[name] == "dki" }
+
+func UpdateLeafNeighbor(world FeatureBlockWorld, p FeaturePosition, state, neighbor SurfaceBlockState) error {
 	if state.Properties["waterlogged"] == "true" {
 		if err := runtimePlantWaterTick(world, p); err != nil {
-			return state, err
+			return err
 		}
 	}
 	distance := scheduledLeafDistance(neighbor) + 1
@@ -116,9 +118,9 @@ func updateRuntimeLeafShape(world FeatureBlockWorld, p FeaturePosition, state, n
 			ScheduleBlockTick(FeaturePosition, string, int32, int32) error
 		})
 		if !ok {
-			return state, fmt.Errorf("leaf shape requires a block tick scheduler")
+			return fmt.Errorf("leaf shape requires a block tick scheduler")
 		}
-		return state, scheduler.ScheduleBlockTick(p, state.Name, 1, 0)
+		return scheduler.ScheduleBlockTick(p, state.Name, 1, 0)
 	}
-	return state, nil
+	return nil
 }

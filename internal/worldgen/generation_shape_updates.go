@@ -20,8 +20,8 @@ func updateTemplateShape(world FeatureBlockWorld, p FeaturePosition, state Surfa
 	if fallingBlock(state.Name) {
 		return updateFallingNeighborShape(w, p, state)
 	}
-	if blockTickHandlers[state.Name] == "dki" {
-		return updateRuntimeLeafShape(w, p, state, neighbor)
+	if IsLeafBlock(state.Name) {
+		return state, UpdateLeafNeighbor(w, p, state, neighbor)
 	}
 	if state.Name == "minecraft:magma_block" || state.Name == "minecraft:soul_sand" || state.Name == "minecraft:bubble_column" {
 		face := map[string]int{"down": 0, "up": 1, "north": 2, "south": 3, "west": 4, "east": 5}[direction]

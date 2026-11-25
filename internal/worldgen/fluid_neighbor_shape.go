@@ -17,8 +17,8 @@ func UpdateFluidNeighborShape(world FeatureBlockWorld, p FeaturePosition, state 
 	if state.Name == "minecraft:magma_block" || state.Name == "minecraft:soul_sand" || state.Name == "minecraft:bubble_column" {
 		return updateBubbleNeighborShape(world, p, state, face, neighbor)
 	}
-	if blockTickHandlers[state.Name] == "dki" {
-		return updateRuntimeLeafShape(world, p, state, neighbor)
+	if IsLeafBlock(state.Name) {
+		return state, UpdateLeafNeighbor(world, p, state, neighbor)
 	}
 	if runtimePlantShape(state.Name) {
 		return updateRuntimePlantShape(world, p, state, direction, neighbor)

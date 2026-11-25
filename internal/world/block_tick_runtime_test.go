@@ -4,6 +4,7 @@ import (
 	"atlas/internal/tickqueue"
 	"atlas/internal/worldgen"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -206,13 +207,10 @@ func TestLiveLeafDistanceUpdatesFlushAtWorldSave(t *testing.T) {
 	}
 	before := state("oak_leaves", map[string]string{"distance": "7"})
 	after := state("oak_leaves", map[string]string{"distance": "1"})
-	if err := w.SetBlock(x-1, y, z, state("oak_log", nil)); err != nil {
-		t.Fatal(err)
-	}
 	if err := w.SetBlock(x, y, z, before); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: x, Y: y, Z: z}, "minecraft:oak_leaves", 1, 0); err != nil {
+	if err := w.SetBlock(x-1, y, z, state("oak_log", nil)); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.TickPlayers(map[ChunkPosition]struct{}{{0, 0}: {}}, 1); err != nil {
@@ -236,4 +234,41 @@ func TestLiveLeafDistanceUpdatesFlushAtWorldSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkSaved(after)
+}
+
+func TestLogRemovalSchedulesLeavesInShapeOrder(t *testing.T) {
+	w, _ := mechanicsWorld(t)
+	logID, err := BlockStateID("oak_log", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := BlockStateID("oak_leaves", map[string]string{"distance": "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetBlock(8, 64, 8, logID); err != nil {
+		t.Fatal(err)
+	}
+	// Vanilla updateNeighbourShapes visits west, east, north, south, down, up.
+	want := []tickqueue.Position{{X: 7, Y: 64, Z: 8}, {X: 9, Y: 64, Z: 8}, {X: 8, Y: 64, Z: 7}, {X: 8, Y: 64, Z: 9}, {X: 8, Y: 63, Z: 8}, {X: 8, Y: 65, Z: 8}}
+	for _, p := range want {
+		if err := w.SetBlock(p.X, p.Y, p.Z, leaf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.TryPlaceBlock(BlockPosition{8, 64, 8}, logID, StateAir, nil); err != nil {
+		t.Fatal(err)
+	}
+	var got []tickqueue.Position
+	w.scheduledTicks.observeDispatch = func(_ int64, kind string, p tickqueue.Position, name string) {
+		if kind == "block" && name == "minecraft:oak_leaves" {
+			got = append(got, p)
+		}
+	}
+	if err := w.Tick(TickChunks{Blocks: func(x, z int32) bool { return x == 0 && z == 0 }}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("leaf tick order = %v, want %v", got, want)
+	}
 }
