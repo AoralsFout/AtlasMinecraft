@@ -102,16 +102,33 @@ func TestNetherPortalArrivalUsesSourceRectangleAndRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer destination.Close()
-	sourceRect := worldgen.PortalRectangle{Origin: worldgen.FeaturePosition{X: 120, Y: 200, Z: 8}, Axis: "x", Width: 3, Height: 3}
-	targetRect := worldgen.PortalRectangle{Origin: worldgen.FeaturePosition{X: 15, Y: 200, Z: 1}, Axis: "z", Width: 2, Height: 3}
+	sourceRect := worldgen.PortalRectangle{Origin: worldgen.FeaturePosition{X: 120, Y: 200, Z: 128}, Axis: "x", Width: 3, Height: 3}
+	targetRect := worldgen.PortalRectangle{Origin: worldgen.FeaturePosition{X: 15, Y: 200, Z: 15}, Axis: "z", Width: 2, Height: 3}
 	buildRuntimePortal(t, source, sourceRect)
-	buildRuntimePortal(t, destination, targetRect)
-	position := PlayerPosition{X: 121.75, Y: 201.1, Z: 8.7, Yaw: 23, Pitch: 15, Flying: true, Dimension: "minecraft:overworld"}
+	position := PlayerPosition{X: 120.4, Y: 201.1, Z: 128.7, Yaw: 23, Pitch: 15, Flying: true, Dimension: "minecraft:overworld"}
 	velocity := [3]float64{1, .2, 2}
-	got, speed, err := destination.NetherPortalArrival(context.Background(), source, BlockPosition{121, 201, 8}, position, velocity, .6, 1.8)
-	if err != nil {
-		t.Fatal(err)
+	prepare := func() NetherPortalTransition {
+		t.Helper()
+		result, err := destination.NetherPortalArrival(context.Background(), source, BlockPosition{120, 201, 128}, position, velocity, .6, 1.8)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
 	}
+	created := prepare()
+	at := created.Position
+	if want := (BlockPosition{int32(math.Floor(at.X)), int32(math.Floor(at.Y)), int32(math.Floor(at.Z))}); created.TicketPosition != want {
+		t.Fatalf("new portal ticket %v, want arrival block %v", created.TicketPosition, want)
+	}
+	buildRuntimePortal(t, destination, targetRect)
+	transition := prepare()
+	if transition.TicketPosition != (BlockPosition{15, 201, 16}) || int32(math.Floor(transition.Position.Z))>>4 != 0 {
+		t.Fatalf("existing portal crossing a chunk boundary must ticket its selected POI: %+v", transition)
+	}
+	if len(destination.portalTicks) != 0 {
+		t.Fatal("preparing an exit activated its post-transition ticket")
+	}
+	got, speed := transition.Position, transition.Velocity
 	relative := worldgen.PortalRelativePosition(sourceRect, [3]float64{position.X, position.Y, position.Z}, .6, 1.8, true)
 	exit, yaw, wantSpeed := worldgen.PortalExitPosition(targetRect, "x", relative, .6, 1.8, position.Yaw, velocity)
 	for i, value := range []float64{got.X, got.Y, got.Z} {

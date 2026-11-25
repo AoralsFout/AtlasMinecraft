@@ -50,10 +50,11 @@ type World struct {
 	simulation      atomic.Pointer[simulationTickets]
 	simulationWake  chan struct{}
 
-	forced            forcedChunks       // guarded by blockUpdateMu
-	spawnRadius       int32              // Overworld spawnChunkRadius, guarded by blockUpdateMu
-	emptyTicks        int                // consecutive ticks without players or forced chunks, capped at 300
-	simulationPlayers []SimulationPlayer // last dimension snapshot, guarded by blockUpdateMu
+	forced            forcedChunks          // guarded by blockUpdateMu
+	portalTicks       map[ChunkPosition]int // remaining ticket lifetime, guarded by blockUpdateMu
+	spawnRadius       int32                 // Overworld spawnChunkRadius, guarded by blockUpdateMu
+	emptyTicks        int                   // consecutive ticks without players or forced chunks, capped at 300
+	simulationPlayers []SimulationPlayer    // last dimension snapshot, guarded by blockUpdateMu
 }
 
 var ErrWorldClosed = errors.New("world is closed")

@@ -95,12 +95,7 @@ func (w *World) commitForcedChunks(next map[ChunkPosition]struct{}) error {
 		w.forced.root = root
 	}
 	w.forced.positions = next
-	tickets := w.simulation.Load()
-	if tickets != nil {
-		w.publishSimulationTickets(tickets.centers, tickets.distance)
-	} else {
-		w.publishSimulationTickets(nil, 0)
-	}
+	w.rebuildSimulationTicketsLocked()
 	return nil
 }
 

@@ -94,17 +94,21 @@ func (s *Server) checkPlayerPortal(p *player.Player, ticks int32) {
 	}()
 	position := world.PlayerPosition{Dimension: dimension, X: x, Y: y, Z: z, Yaw: yaw, Pitch: pitch, Flying: flying}
 	var arrival world.PlayerPosition
+	var destination *world.World
+	var transition world.NetherPortalTransition
 	switch kind {
 	case "minecraft:nether_portal":
 		name := "minecraft:the_nether"
 		if dimension == name {
 			name = "minecraft:overworld"
 		}
-		destination, ok := s.WorldInDimension(name)
+		var ok bool
+		destination, ok = s.WorldInDimension(name)
 		if !ok {
 			return
 		}
-		arrival, _, err = destination.NetherPortalArrival(ctx, w, portal, position, [3]float64{}, .6, height)
+		transition, err = destination.NetherPortalArrival(ctx, w, portal, position, [3]float64{}, .6, height)
+		arrival = transition.Position
 	case "minecraft:end_portal":
 		destination, ok := s.WorldInDimension("minecraft:the_end")
 		if !ok {
@@ -124,4 +128,7 @@ func (s *Server) checkPlayerPortal(p *player.Player, ticks int32) {
 		return
 	}
 	transferred = true
+	if kind == "minecraft:nether_portal" {
+		destination.PlacePortalTicket(transition.TicketPosition)
+	}
 }

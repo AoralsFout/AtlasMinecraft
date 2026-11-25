@@ -195,25 +195,32 @@ func (w *World) NetherPortalCandidates(ctx context.Context, target BlockPosition
 // FindOrCreateNetherPortal preserves PortalForcer search/create geometry.
 // Player arrival and cooldown are separate from the returned block rectangle.
 func (w *World) FindOrCreateNetherPortal(ctx context.Context, target BlockPosition, axis string) (worldgen.PortalRectangle, error) {
+	rect, _, err := w.findOrCreateNetherPortal(ctx, target, axis)
+	return rect, err
+}
+
+func (w *World) findOrCreateNetherPortal(ctx context.Context, target BlockPosition, axis string) (worldgen.PortalRectangle, *BlockPosition, error) {
 	if w.DimensionName() == "minecraft:the_end" {
-		return worldgen.PortalRectangle{}, fmt.Errorf("End dimension has no Nether portal")
+		return worldgen.PortalRectangle{}, nil, fmt.Errorf("End dimension has no Nether portal")
 	}
 	border, err := w.PortalBorder()
 	if err != nil {
-		return worldgen.PortalRectangle{}, err
+		return worldgen.PortalRectangle{}, nil, err
 	}
 	candidates, err := w.NetherPortalCandidates(ctx, target)
 	if err != nil {
-		return worldgen.PortalRectangle{}, err
+		return worldgen.PortalRectangle{}, nil, err
 	}
 	a := &portalSnapshotWorld{w: w, ctx: ctx, chunks: make(map[chunkKey]portalChunkSnapshot)}
 	p := worldgen.FeaturePosition{X: target.X, Y: target.Y, Z: target.Z}
 	closest, found, err := worldgen.FindClosestNetherPortal(a, candidates, p, w.DimensionName() == "minecraft:the_nether", border)
 	if err != nil {
-		return worldgen.PortalRectangle{}, err
+		return worldgen.PortalRectangle{}, nil, err
 	}
 	if found {
-		return worldgen.NetherPortalRectangle(a, closest)
+		rect, err := worldgen.NetherPortalRectangle(a, closest)
+		poi := BlockPosition(closest)
+		return rect, &poi, err
 	}
 	logical := w.MaxBuildHeight() - w.MinBuildHeight()
 	if w.DimensionName() == "minecraft:the_nether" {
@@ -223,7 +230,7 @@ func (w *World) FindOrCreateNetherPortal(ctx context.Context, target BlockPositi
 	if err == nil && !found {
 		err = fmt.Errorf("unable to create Nether portal within logical build height")
 	}
-	return rect, err
+	return rect, nil, err
 }
 
 func (a *portalSnapshotWorld) collisionBoxes(bounds blockrules.Box, border worldgen.PortalBorder) ([]blockrules.Box, error) {
@@ -268,21 +275,27 @@ func (a *portalSnapshotWorld) collisionBoxes(bounds blockrules.Box, border world
 	return boxes, nil
 }
 
+type NetherPortalTransition struct {
+	Position       PlayerPosition
+	Velocity       [3]float64
+	TicketPosition BlockPosition
+}
+
 // NetherPortalArrival computes a living player's destination through the
 // actual source rectangle, 8:1 search target and collision-adjusted exit.
-func (w *World) NetherPortalArrival(ctx context.Context, source *World, sourcePortal BlockPosition, position PlayerPosition, velocity [3]float64, width, height float32) (PlayerPosition, [3]float64, error) {
+func (w *World) NetherPortalArrival(ctx context.Context, source *World, sourcePortal BlockPosition, position PlayerPosition, velocity [3]float64, width, height float32) (NetherPortalTransition, error) {
 	if source == nil || width <= 0 || height <= 0 || width > 16 || height > 16 || math.IsNaN(float64(width)) || math.IsNaN(float64(height)) {
-		return PlayerPosition{}, velocity, fmt.Errorf("invalid portal entity dimensions")
+		return NetherPortalTransition{}, fmt.Errorf("invalid portal entity dimensions")
 	}
 	target, err := w.NetherPortalSearchTarget(source.DimensionName(), position.X, position.Y, position.Z)
 	if err != nil {
-		return PlayerPosition{}, velocity, err
+		return NetherPortalTransition{}, err
 	}
 	a := &portalSnapshotWorld{w: source, ctx: ctx, chunks: make(map[chunkKey]portalChunkSnapshot)}
 	p := worldgen.FeaturePosition{X: sourcePortal.X, Y: sourcePortal.Y, Z: sourcePortal.Z}
 	s, err := a.BlockAt(p)
 	if err != nil {
-		return PlayerPosition{}, velocity, err
+		return NetherPortalTransition{}, err
 	}
 	sourceAxis := "x"
 	relative := [3]float64{.5, 0, 0}
@@ -290,28 +303,32 @@ func (w *World) NetherPortalArrival(ctx context.Context, source *World, sourcePo
 		sourceAxis = s.Properties["axis"]
 		rect, err := worldgen.NetherPortalRectangle(a, p)
 		if err != nil {
-			return PlayerPosition{}, velocity, err
+			return NetherPortalTransition{}, err
 		}
 		relative = worldgen.PortalRelativePosition(rect, [3]float64{position.X, position.Y, position.Z}, width, height, true)
 	}
-	rect, err := w.FindOrCreateNetherPortal(ctx, target, sourceAxis)
+	rect, poi, err := w.findOrCreateNetherPortal(ctx, target, sourceAxis)
 	if err != nil {
-		return PlayerPosition{}, velocity, err
+		return NetherPortalTransition{}, err
 	}
 	exit, yaw, speed := worldgen.PortalExitPosition(rect, sourceAxis, relative, width, height, position.Yaw, velocity)
 	if width <= 4 && height <= 4 {
 		destination := &portalSnapshotWorld{w: w, ctx: ctx, chunks: make(map[chunkKey]portalChunkSnapshot)}
 		border, err := w.PortalBorder()
 		if err != nil {
-			return PlayerPosition{}, velocity, err
+			return NetherPortalTransition{}, err
 		}
 		boxes, err := destination.collisionBoxes(worldgen.PortalCollisionSearchBounds(exit, width, height), border)
 		if err != nil {
-			return PlayerPosition{}, velocity, err
+			return NetherPortalTransition{}, err
 		}
 		exit = worldgen.FindCollisionFreePortalPosition(exit, width, height, boxes)
 	}
 	position.X, position.Y, position.Z = exit[0], exit[1], exit[2]
 	position.Yaw, position.Dimension = yaw, w.DimensionName()
-	return position, speed, nil
+	ticket := BlockPosition{int32(math.Floor(exit[0])), int32(math.Floor(exit[1])), int32(math.Floor(exit[2]))}
+	if poi != nil {
+		ticket = *poi
+	}
+	return NetherPortalTransition{Position: position, Velocity: speed, TicketPosition: ticket}, nil
 }

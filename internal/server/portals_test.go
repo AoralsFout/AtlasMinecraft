@@ -93,6 +93,24 @@ func TestPlayerPortalTravelRotationCooldownAndSave(t *testing.T) {
 	if err != nil || !exists || saved.Dimension != "minecraft:the_nether" || saved.PortalCooldown != 9 {
 		t.Fatal("portal save lost dimension/cooldown", saved, err)
 	}
+	// With the traveler gone, only the successful crossing keeps scheduled
+	// ticks running in the destination. No player tickets have been issued.
+	s.Hub.Leave(p)
+	sand, err := world.BlockStateID("minecraft:sand", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nether.SetBlock(8, 224, 8, sand); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := nether.TickPlayers(nil, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := nether.BlockAt(8, 224, 8); err != nil || got != world.StateAir {
+		t.Fatalf("portal destination sand did not fall after departure: %d %v", got, err)
+	}
 }
 
 func TestPlayerEndPortalArrivalUsesOriginalPlatform(t *testing.T) {

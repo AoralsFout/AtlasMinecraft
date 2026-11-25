@@ -48,6 +48,11 @@ func (w *World) tickLocked(chunks TickChunks, live bool) error {
 			}
 		}
 	}
+	// ServerChunkCache purges tickets after scheduled blocks/fluids and
+	// before ticking chunks and entities. Those later phases read live tickets.
+	if live {
+		w.tickPortalTicketsLocked()
+	}
 	if chunks.Random != nil {
 		if runtime == nil {
 			runtime = &fluidRuntime{world: w, settings: w.fluidSettings()}

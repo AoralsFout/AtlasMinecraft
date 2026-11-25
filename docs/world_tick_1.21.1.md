@@ -46,7 +46,23 @@ Atlas 的服务器入口测试另检查玩家离开后的水流计时：5 刻的
 
 原版 `ServerLevel.tick` 在维度连续没有玩家和强加载票据时，仅在前 300 刻进入实体阶段。Atlas 以落沙验证第 300 刻实体仍移动，第 301 刻起暂停。此时新放置的悬空沙仍能按计划刻转为实体。添加强加载票据会恢复实体阶段。出生票据本身也不会给区块提供随机刻所需的玩家距离条件。[区块与实体边界测试](../internal/world/spawn_chunks_test.go) · [命令与重启测试](../internal/server/world_tick_test.go) · [Mojang 出生半径说明](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-5)
 
-下一阶段接入传送门临时票据。先测量目的地区块在进入、重复进入和到期时的等级，再核对它与出生及强加载票据重叠时的释放行为。之后接入三维度共享时间与 `doDaylightCycle`。
+## 下界传送门目的地票据
+
+玩家成功穿过下界传送门后，目的地维度获得中心等级为 30 的临时票据。沿用已有门时，中心取搜索命中的门方块所在区块，即使碰撞修正后的落点在邻区块。新建门时，中心取实体实际落点所在区块。相同区块最近一次穿越决定该区块的保活期限，服务器重启会清除临时票据。[目的地选择](../internal/world/portal_forcer.go) · [玩家穿越](../internal/server/portals.go) · [票据生命周期](../internal/world/portal_tickets.go)
+
+在 Java 1.21.1 无玩家专用服务端关闭出生区块，强加载下界入口与主世界目的地。在下界 `200.5 80.4 200.5` 生成掉落物使其穿越，再让第二个掉落物经同一座门抵达。冻结世界并逐段步进，用 `/perf` 的主世界 `chunks.csv` 检查区块 `[100,100]`。两次抵达的票据键均为门方块 `(1601,80,1600)`，创建刻从 3 更新到 105。
+
+| 距最近一次抵达 | 原版区块报告与方块状态 |
+| --- | --- |
+| 299 刻 | 中心仍为 PORTAL 30。在距离中心 1、2 个区块处放置悬空沙。 |
+| 300 刻 | 中心仍为 PORTAL 30，沙仍在原位。 |
+| 301 刻 | 两处沙都完成计划刻并离开原位，中心回落到 FORCED 31。第一圈落沙实体的 `Time` 为 0。此刻在第二圈再放沙，步进两刻仍悬空。 |
+
+仓库保留了原版报告中的中心等级与各圈数量。回归测试按相同时间点对照，完整区块数在第 301 刻由 49 个降为 25 个。[1.21.1 原版报告摘录](../testdata/worldgen/portal_ticket_expiry_1.21.1.csv)
+
+这个边界来自原版的刻内顺序。计划方块刻和流体刻先运行，随后清除年龄大于 300 的票据，实体阶段使用降级后的范围。Go 回归同时覆盖出生、玩家、另一座门和强加载票据重叠，以及无人、续期与重启。原版实验使用掉落物触发穿越，Atlas 的联机入口测试使用玩家；普通实体跨维度迁移仍待实现。[到期边界测试](../internal/world/portal_tickets_test.go) · [跨区块门框测试](../internal/world/portal_forcer_test.go) · [服务器入口测试](../internal/server/portals_test.go)
+
+下一步把同一套票据接入末地传送门，验证进入末地平台与返回主世界时的实际落点，再推进三维度共享时间与 `doDaylightCycle`。
 
 ## 基线中复现的两个差异
 
@@ -71,7 +87,7 @@ Atlas 的服务器入口测试另检查玩家离开后的水流计时：5 刻的
 | 方块事件 | 玩家编辑与流体编辑各有邻接更新；已有向客户端发送场景效果的路径。[普通编辑](../internal/world/block_updates.go) · [流体回调](../internal/world/fluid_runtime.go) | 补 `ServerLevel.runBlockEvents` 的排队、再检查和执行，例如活塞。用同刻多次触发、执行前替换方块、区块暂时失去资格验证。幽匿振动另需游戏事件监听与传播。[游戏事件回调现状](../internal/world/fluid_container_runtime.go) |
 | 龙战、实体、方块实体 → 实体管理 | 支持沙、红沙、沙砾及两种可疑方块的下落运动，并能生成部分掉落物。跨区块下落实体显式返回错误。方块实体可保存和同步，营火能保存烹饪进度。[实体运动](../internal/worldgen/falling_entity.go) · [运行与迁移](../internal/world/falling_entities.go) · [方块实体同步](../internal/world/block_entities.go) | 先补区块/区域间实体交接和掉落物的移动、拾取、合并、消失；再接通用实体与方块实体 tick，例如熔炉、漏斗、营火。后续覆盖乘客、生物 AI、末影龙战。验收同一 UUID 越界后只更新一次，卸载重载后库存和冷却接续。 |
 
-## 区块的执行资格
+## 调查基线中的区块执行资格
 
 1. **计划刻**。原版两套 `LevelTicks` 都使用 `isPositionTickingWithEntitiesLoaded`，要求实体存储就绪、区块持有者存在、达到方块 ticking 等级且 ticking chunk 已就绪。这里没有 128 格玩家距离检查。Atlas 已区分玩家模拟半径、额外一圈计划更新和最外一圈仅加载区块，并按邻域就绪程度执行。仍缺出生区块、持久强加载、传送门等票据来源以及相应的升级、降级与到期。启动的出生点预加载只预备地形。[Atlas 票据](../internal/world/simulation.go) · [区块就绪检查](../internal/world/scheduled_tick_owner.go) · [Wiki 区块历史](https://minecraft.wiki/w/Chunk#History)
 2. **随机刻**。1.21.1 的 `ServerChunkCache.tickChunks` 打乱候选区块顺序。除了 ticking 资格，还要求同维度有非旁观玩家，而且玩家到区块中心的水平距离平方严格小于 16,384。玩家的 Y 不参与计算，同一区块内移动也可能让远端区块跨过门槛。当前 `SimulationCenter` 只保留游玩状态、维度和区块坐标。需保留精确 X/Z、旁观状态，并区分加载票据与邻近玩家判定。验收覆盖恰好 128 格、略小于 128 格、旁观玩家、多人重叠、只有强加载票据等情况。1.21.5 才放宽远离玩家时的随机刻规则。[玩家快照](../internal/player/dimension.go) · [Wiki 游戏刻历史](https://minecraft.wiki/w/Tick#History) · [Mojang 版本变更说明](https://feedback.minecraft.net/hc/en-us/articles/34065446883725-Minecraft-Java-Edition-Snapshot-25w06a)

@@ -49,9 +49,17 @@ func (t *simulationTickets) addCenter(center ChunkPosition, entityRadius int32) 
 }
 
 // Published maps are immutable. The caller holds blockUpdateMu.
+func (w *World) rebuildSimulationTicketsLocked() {
+	if tickets := w.simulation.Load(); tickets != nil {
+		w.publishSimulationTickets(tickets.centers, tickets.distance)
+	} else {
+		w.publishSimulationTickets(nil, 0)
+	}
+}
+
 func (w *World) publishSimulationTickets(centers map[ChunkPosition]struct{}, distance int32) *simulationTickets {
 	spawn := w.spawnTicketLocked()
-	if len(centers) == 0 && len(w.forced.positions) == 0 && spawn.radius == 0 {
+	if len(centers) == 0 && len(w.forced.positions) == 0 && len(w.portalTicks) == 0 && spawn.radius == 0 {
 		w.simulation.Store(nil)
 		return nil
 	}
@@ -64,6 +72,9 @@ func (w *World) publishSimulationTickets(centers map[ChunkPosition]struct{}, dis
 	}
 	for center := range w.forced.positions {
 		tickets.addCenter(center, 0)
+	}
+	for center := range w.portalTicks {
+		tickets.addCenter(center, 1) // PORTAL at level 30
 	}
 	w.simulation.Store(tickets)
 	select {
@@ -86,7 +97,7 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 		if entityPhase {
 			w.emptyTicks++
 		}
-		if w.spawnRadius == 0 {
+		if w.spawnRadius == 0 && len(w.portalTicks) == 0 {
 			w.simulation.Store(nil)
 			return w.tickLocked(TickChunks{}, true)
 		}
