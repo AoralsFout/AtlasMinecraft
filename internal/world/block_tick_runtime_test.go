@@ -103,7 +103,7 @@ func TestColdBlockEditDoesNotBlockWorldClock(t *testing.T) {
 
 func TestLiveTickRetriesFailedBlockWhileSandAndWaterAdvance(t *testing.T) {
 	w, _ := mechanicsWorld(t)
-	centers := map[ChunkPosition]struct{}{{0, 0}: {}}
+	centers := []SimulationPlayer{{X: 8, Z: 8}}
 	water, err := BlockStateID("minecraft:water", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ func TestLiveLeafDistanceUpdatesFlushAtWorldSave(t *testing.T) {
 	if err := w.SetBlock(x-1, y, z, state("oak_log", nil)); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.TickPlayers(map[ChunkPosition]struct{}{{0, 0}: {}}, 1); err != nil {
+	if err := w.TickPlayers([]SimulationPlayer{{X: 8, Z: 8}}, 1); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := w.BlockAt(x, y, z); err != nil || got != after {

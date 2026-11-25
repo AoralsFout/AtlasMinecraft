@@ -122,7 +122,7 @@ func playerInfoAdd(p *player.Player) []byte {
 		}
 	}
 	// update_game_mode
-	w.VarInt(1) // creative
+	w.VarInt(int32(p.GameMode()))
 	// update_listed
 	w.Bool(true)
 	// update_latency

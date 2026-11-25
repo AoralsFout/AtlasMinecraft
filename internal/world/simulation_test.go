@@ -7,7 +7,7 @@ import (
 
 func TestPlayerSimulationLoadsAndRetainsTickingNeighborhoods(t *testing.T) {
 	w, _ := mechanicsWorld(t)
-	centers := map[ChunkPosition]struct{}{{0, 0}: {}}
+	centers := []SimulationPlayer{{X: 8, Z: 8}}
 	if err := w.TickPlayers(centers, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -55,4 +55,46 @@ func TestPlayerSimulationLoadsAndRetainsTickingNeighborhoods(t *testing.T) {
 	if count, err := w.UnloadIdle(0); err != nil || count != 49 {
 		t.Fatalf("unload after final ticket: count=%d err=%v", count, err)
 	}
+}
+
+func TestRandomTickPlayerDistance(t *testing.T) {
+	w, _ := mechanicsWorld(t)
+	for x := int32(-2); x <= 2; x++ {
+		for z := int32(-2); z <= 2; z++ {
+			if _, err := w.LoadChunk(x, z); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// The spectator supplies a ticket near the target, never proximity.
+	// A moving non-spectator crosses the 128-block boundary inside chunk -8.
+	players := []SimulationPlayer{{X: 8, Z: 8, Spectator: true}, {X: -120, Z: 8}}
+	check := func(want bool) {
+		t.Helper()
+		if err := w.TickPlayers(players, 1); err != nil {
+			t.Fatal(err)
+		}
+		if got := w.RandomTickEligible(0, 0); got != want {
+			t.Fatalf("players %+v: got %t, want %t", players, got, want)
+		}
+	}
+	check(false)
+	tickets := w.simulation.Load()
+	players[1].X += .01
+	check(true)
+	if w.simulation.Load() != tickets {
+		t.Fatal("movement inside one chunk rebuilt terrain tickets")
+	}
+	players[1].Z += 2
+	check(false)
+	players[1].Spectator = true
+	players[1].X, players[1].Z = 8, 8
+	check(false)
+	players[1].Spectator = false
+	check(true)
+	if w.RandomTickEligible(2, 0) {
+		t.Fatal("block-only ring received a random tick")
+	}
+	players = nil
+	check(false)
 }

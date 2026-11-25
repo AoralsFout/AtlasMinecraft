@@ -47,6 +47,8 @@ type World struct {
 	fallingEntities fallingEntityOrder
 	simulation      atomic.Pointer[simulationTickets]
 	simulationWake  chan struct{}
+
+	simulationPlayers []SimulationPlayer // last dimension snapshot, guarded by blockUpdateMu
 }
 
 var ErrWorldClosed = errors.New("world is closed")

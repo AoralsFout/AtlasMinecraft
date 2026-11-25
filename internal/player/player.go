@@ -50,6 +50,7 @@ type Player struct {
 	crouching       bool
 	sprinting       bool
 	playReady       bool
+	gameMode        int8
 	teleportID      int32
 	teleportPending bool
 	cx, cz          int32
@@ -84,6 +85,7 @@ func New(name string, uuid [16]byte, eid int32, fc *proto.FramedConn) *Player {
 		Done:            make(chan struct{}),
 		ChunkUpdates:    make(chan struct{}, 1),
 		viewDist:        8,
+		gameMode:        CreativeMode,
 		skinParts:       0x7f,
 		visible:         make(map[int32]struct{}),
 		sentChunks:      make(map[[2]int32]struct{}),

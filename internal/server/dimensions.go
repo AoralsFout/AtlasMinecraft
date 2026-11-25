@@ -86,7 +86,8 @@ func dimensionTypeID(name string) int32 {
 	}
 }
 func (s *Server) respawnPayload(p *player.Player, w *world.World) []byte {
-	return proto.NewWriter().VarInt(dimensionTypeID(w.DimensionName())).String(w.DimensionName()).I64(w.HashedSeed()).I8(1).I8(1).
+	mode := p.GameMode()
+	return proto.NewWriter().VarInt(dimensionTypeID(w.DimensionName())).String(w.DimensionName()).I64(w.HashedSeed()).I8(mode).I8(mode).
 		Bool(false).Bool(w.IsFlat()).Bool(false).VarInt(0).U8(3).Payload()
 }
 

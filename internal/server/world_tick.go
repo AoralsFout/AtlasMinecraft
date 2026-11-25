@@ -11,21 +11,18 @@ import (
 func (s *Server) TickWorlds() error {
 	s.worldClockMu.Lock()
 	defer s.worldClockMu.Unlock()
-	centers := make(map[string]map[world.ChunkPosition]struct{})
+	byDimension := make(map[string][]world.SimulationPlayer)
 	players := s.Hub.Snapshot()
 	for _, p := range players {
-		dimension, x, z, active := p.SimulationCenter()
+		dimension, x, z, spectator, active := p.SimulationPosition()
 		if active {
-			if centers[dimension] == nil {
-				centers[dimension] = make(map[world.ChunkPosition]struct{})
-			}
-			centers[dimension][world.ChunkPosition{X: x, Z: z}] = struct{}{}
+			byDimension[dimension] = append(byDimension[dimension], world.SimulationPlayer{X: x, Z: z, Spectator: spectator})
 		}
 	}
 	var errs []error
 	for _, w := range s.Worlds() {
 		name := w.DimensionName()
-		if err := w.TickPlayers(centers[name], int32(s.Cfg.SimulationDistance)); err != nil {
+		if err := w.TickPlayers(byDimension[name], int32(s.Cfg.SimulationDistance)); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 		s.publishFallingEntities(w, players)

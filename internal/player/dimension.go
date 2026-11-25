@@ -30,23 +30,35 @@ func (p *Player) WorldPosition() (string, float64, float64, float64, float32, fl
 	return name, p.x, p.y, p.z, p.yaw, p.pitch, p.flying
 }
 
-// SimulationCenter reads dimension, chunk and play state as one snapshot.
-func (p *Player) SimulationCenter() (dimension string, x, z int32, active bool) {
+const (
+	CreativeMode  int8 = 1
+	SpectatorMode int8 = 3
+)
+
+func (p *Player) GameMode() int8 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.gameMode
+}
+
+// SimulationPosition captures dimension, exact horizontal position and mode
+// together, including movement that has not crossed a chunk boundary.
+func (p *Player) SimulationPosition() (dimension string, x, z float64, spectator, active bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.playReady {
-		return "", 0, 0, false
+		return "", 0, 0, false, false
 	}
 	select {
 	case <-p.Done:
-		return "", 0, 0, false
+		return "", 0, 0, false, false
 	default:
 	}
 	dimension = p.dimension
 	if dimension == "" {
 		dimension = "minecraft:overworld"
 	}
-	return dimension, p.cx, p.cz, true
+	return dimension, p.x, p.z, p.gameMode == SpectatorMode, true
 }
 
 func (p *Player) WorldPositionWithPortalCooldown() (string, float64, float64, float64, float32, float32, bool, int32) {

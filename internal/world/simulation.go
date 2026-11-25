@@ -3,12 +3,18 @@ package world
 import (
 	"context"
 	"maps"
+	"math"
 	"sort"
 	"time"
 )
 
 // ChunkPosition is a horizontal position in chunk coordinates.
 type ChunkPosition struct{ X, Z int32 }
+
+type SimulationPlayer struct {
+	X, Z      float64
+	Spectator bool
+}
 
 // Player tickets in 1.21.1 cover a square (Chebyshev distance). The block
 // ring and the loaded-only ring supply the 3x3 and 5x5 ticking neighborhoods.
@@ -38,13 +44,18 @@ func newSimulationTickets(centers map[ChunkPosition]struct{}, distance int32) *s
 
 // TickPlayers updates this dimension's player tickets and executes one game
 // tick. Changes to the ticket set wake asynchronous terrain preparation.
-func (w *World) TickPlayers(centers map[ChunkPosition]struct{}, distance int32) error {
+func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
+	w.simulationPlayers = append(w.simulationPlayers[:0], players...)
 	tickets := w.simulation.Load()
-	if len(centers) == 0 {
+	if len(players) == 0 {
 		w.simulation.Store(nil)
 		return w.tickLocked(TickChunks{}, true)
+	}
+	centers := make(map[ChunkPosition]struct{}, len(players))
+	for _, p := range players {
+		centers[ChunkPosition{int32(math.Floor(p.X / 16)), int32(math.Floor(p.Z / 16))}] = struct{}{}
 	}
 	if tickets == nil || tickets.distance != distance || !maps.Equal(tickets.centers, centers) {
 		tickets = newSimulationTickets(centers, distance)
@@ -59,11 +70,34 @@ func (w *World) TickPlayers(centers map[ChunkPosition]struct{}, distance int32) 
 			d, ok := tickets.chunks[chunkKey{x, z}]
 			return ok && d <= distance+1
 		},
-		Entities: func(x, z int32) bool {
-			d, ok := tickets.chunks[chunkKey{x, z}]
-			return ok && d <= distance && w.scheduledTicks.neighborhoodLoaded(x, z, 2)
-		},
+		Entities: w.entityTickEligible,
 	}, true)
+}
+
+func (w *World) entityTickEligible(x, z int32) bool {
+	tickets := w.simulation.Load()
+	if tickets == nil {
+		return false
+	}
+	d, ok := tickets.chunks[chunkKey{x, z}]
+	return ok && d <= tickets.distance && w.scheduledTicks.neighborhoodLoaded(x, z, 2)
+}
+
+// RandomTickEligible reports the 1.21.1 chunk gate under the latest player
+// tickets. The horizontal player radius is strict and independent of height.
+func (w *World) RandomTickEligible(x, z int32) bool {
+	w.blockUpdateMu.Lock()
+	defer w.blockUpdateMu.Unlock()
+	if !w.entityTickEligible(x, z) {
+		return false
+	}
+	for _, player := range w.simulationPlayers {
+		dx, dz := float64(x)*16+8-player.X, float64(z)*16+8-player.Z
+		if !player.Spectator && dx*dx+dz*dz < 128*128 {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *World) simulationDistance(key chunkKey) (int32, bool) {

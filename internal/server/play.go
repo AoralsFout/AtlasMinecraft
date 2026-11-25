@@ -232,7 +232,7 @@ func (s *Server) joinGamePayload(p *player.Player) []byte {
 	currentWorld := s.PlayerWorld(p)
 	w.VarInt(dimensionTypeID(currentWorld.DimensionName())).String(currentWorld.DimensionName())
 	w.I64(currentWorld.HashedSeed())          // vanilla BiomeManager seed hash
-	w.I8(1).U8(255)                           // gamemode creative, no previous gamemode
+	w.I8(p.GameMode()).U8(255)                // no previous game mode
 	w.Bool(false).Bool(currentWorld.IsFlat()) // debug, flat
 	w.Bool(false)                             // no death location
 	w.VarInt(0)                               // portal cooldown
