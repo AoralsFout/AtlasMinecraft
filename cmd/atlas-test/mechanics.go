@@ -113,7 +113,8 @@ func checkMechanics(fc *proto.FramedConn) {
 		panic(err)
 	}
 	fc.WritePacket(proto.CChatCommand, proto.NewWriter().String(fmt.Sprintf("setblock 1 210 0 %d", sand)).Payload())
-	check("sand settles above support", waitBlockUpdates(fc, map[[3]int32]uint32{{1, 201, 0}: sand}, -1), "")
+	// World tick tests supply simulation eligibility and check falling and landing.
+	check("sand placement update", waitBlockUpdates(fc, map[[3]int32]uint32{{1, 210, 0}: sand}, -1), "")
 	checkCommand(fc, "setblock 2 200 0 grass_block", "Set block at 2 200 0")
 	lower := sendCreativeBlock(fc, "tall_grass")
 	upper, err := blockstate.BlockStateID("minecraft:tall_grass", map[string]string{"half": "upper"})

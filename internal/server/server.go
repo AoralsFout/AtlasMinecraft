@@ -45,6 +45,7 @@ type Server struct {
 	World             *world.World
 	worldMu           sync.RWMutex
 	worlds            map[string]*world.World
+	worldClockMu      sync.Mutex // Serializes world ticks and daytime commands across dimensions.
 	nextEID           atomic.Int32
 	nextTeleportID    atomic.Int32
 	listenerMu        sync.Mutex

@@ -27,8 +27,15 @@ func TestScheduledBlockFailureRetainsFluidPhase(t *testing.T) {
 		t.Fatal(err)
 	}
 	eligible := func(x, z int32) bool { return x == 0 && z == 0 }
-	if err := w.TickScheduled(eligible); !errors.Is(err, worldgen.ErrUnsupportedScheduledBlock) {
+	age, daytime := w.Time()
+	if err := w.Tick(TickChunks{}); err != nil {
+		t.Fatal("time-only tick ran an unsupported block handler", err)
+	}
+	if err := w.Tick(TickChunks{Blocks: eligible}); !errors.Is(err, worldgen.ErrUnsupportedScheduledBlock) {
 		t.Fatal("unsupported block tick did not fail explicitly", err)
+	}
+	if gotAge, gotDaytime := w.Time(); gotAge != age+2 || gotDaytime != daytime+2 {
+		t.Fatalf("time after two ticks: age=%d daytime=%d, want %d/%d", gotAge, gotDaytime, age+2, daytime+2)
 	}
 	o := w.scheduledTicks
 	o.mu.Lock()

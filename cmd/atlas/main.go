@@ -195,7 +195,11 @@ func main() {
 		slog.Info("Dimension ready", "dimension", dimension, "mode", dimensionWorld.GenerationMode())
 	}
 
-	go runWorldClock(ctx, s)
+	clockDone := make(chan struct{})
+	go func() {
+		defer close(clockDone)
+		runWorldClock(ctx, s)
+	}()
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
@@ -223,6 +227,7 @@ func main() {
 	}
 	s.Close()
 	stop()
+	<-clockDone
 	for _, opened := range s.Worlds() {
 		if err := opened.Close(); err != nil {
 			slog.Error("world save failed", "dimension", opened.DimensionName(), "error", err)
@@ -253,8 +258,10 @@ func createWorldIfMissing(dir, levelType string, seed *int64) error {
 }
 
 func runWorldClock(ctx context.Context, s *server.Server) {
+	const tickInterval = 50 * time.Millisecond
+	const maxTicksPerWake = 5
 	s.StartTickMetrics()
-	tick := time.NewTicker(50 * time.Millisecond)
+	tick := time.NewTicker(tickInterval)
 	defer tick.Stop()
 	lastTick := time.Now()
 	save := time.NewTicker(30 * time.Second)
@@ -263,12 +270,19 @@ func runWorldClock(ctx context.Context, s *server.Server) {
 		select {
 		case <-tick.C:
 			started := time.Now()
-			elapsed := time.Since(lastTick)
-			ticks := int64(elapsed / (50 * time.Millisecond))
+			ticks := int64(min(started.Sub(lastTick)/tickInterval, maxTicksPerWake))
+			for range ticks {
+				if ctx.Err() != nil {
+					return
+				}
+				// The server supplies simulation ranges once chunk tickets are available.
+				if err := s.TickWorlds(nil); err != nil {
+					slog.Error("world tick failed", "error", err)
+				}
+				lastTick = lastTick.Add(tickInterval)
+			}
 			if ticks > 0 {
-				s.World.AdvanceTime(ticks)
 				s.TickPortals(ticks)
-				lastTick = lastTick.Add(time.Duration(ticks) * 50 * time.Millisecond)
 			}
 			s.RecordTick(started)
 		case <-save.C:

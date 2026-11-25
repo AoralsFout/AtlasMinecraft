@@ -15,8 +15,7 @@ import (
 // Eligibility is supplied by the caller's chunk tickets; it must be a pure,
 // nonblocking predicate. No missing chunk is generated. Call AdvanceTime for
 // each elapsed game tick; skipping straight to the final time is not equivalent.
-// The server clock is not wired here until the remaining block-update handlers
-// and ticket policy have complete reference coverage.
+// Tick drives the combined scheduled and entity phases when given chunk eligibility.
 func (w *World) TickFluids(eligible func(int32, int32) bool) error {
 	return w.tickScheduled(eligible, false)
 }
@@ -34,6 +33,10 @@ func (w *World) tickScheduled(eligible func(int32, int32) bool, blocks bool) err
 	}
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
+	return w.tickScheduledLocked(eligible, blocks)
+}
+
+func (w *World) tickScheduledLocked(eligible func(int32, int32) bool, blocks bool) error {
 	select {
 	case <-w.done:
 		return ErrWorldClosed

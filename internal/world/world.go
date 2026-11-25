@@ -378,6 +378,10 @@ func (w *World) Time() (age, dayTime int64) {
 func (w *World) AdvanceTime(ticks int64) {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
+	w.advanceTimeLocked(ticks)
+}
+
+func (w *World) advanceTimeLocked(ticks int64) {
 	w.stateMu.Lock()
 	w.meta.Age += ticks
 	w.meta.DayTime += ticks

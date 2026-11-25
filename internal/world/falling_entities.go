@@ -295,6 +295,10 @@ func (w *World) TickFallingEntities(eligible func(int32, int32) bool) error {
 	}
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
+	return w.tickFallingEntitiesLocked(eligible)
+}
+
+func (w *World) tickFallingEntitiesLocked(eligible func(int32, int32) bool) error {
 	r := &fluidRuntime{world: w, settings: w.fluidSettings()}
 	if err := r.recoverFallingSpawns(); err != nil {
 		return err

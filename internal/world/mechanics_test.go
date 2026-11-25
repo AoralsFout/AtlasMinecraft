@@ -42,13 +42,9 @@ func TestGravityAndDoublePlantUpdatesPersist(t *testing.T) {
 	}
 	advance := func(ticks int) {
 		t.Helper()
+		eligible := func(x, z int32) bool { return x >= -1 && x <= 1 && z >= -1 && z <= 1 }
 		for i := 0; i < ticks; i++ {
-			w.AdvanceTime(1)
-			eligible := func(x, z int32) bool { return x >= -1 && x <= 1 && z >= -1 && z <= 1 }
-			if err := w.TickScheduled(eligible); err != nil {
-				t.Fatal(err)
-			}
-			if err := w.TickFallingEntities(eligible); err != nil {
+			if err := w.Tick(TickChunks{Blocks: eligible, Entities: eligible}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -80,7 +76,18 @@ func TestGravityAndDoublePlantUpdatesPersist(t *testing.T) {
 	check(-1, -48, -1, gravel)
 	advance(1)
 	check(-1, -49, -1, sand)
-	advance(59)
+	advance(1)
+	check(-1, -49, -1, StateAir)
+	entities, err := w.EntitiesInChunk(-1, -1)
+	if err != nil || len(entities) != 2 {
+		t.Fatalf("falling entities on second tick: got %d, err=%v", len(entities), err)
+	}
+	for _, entity := range entities {
+		if age, ok := entity.Data.Number("Time"); !ok || age != 1 {
+			t.Fatalf("falling entity must move during its spawn tick: age=%d", age)
+		}
+	}
+	advance(58)
 	check(-1, -60, -1, sand)
 	check(-1, -59, -1, gravel)
 	check(-1, -49, -1, StateAir)

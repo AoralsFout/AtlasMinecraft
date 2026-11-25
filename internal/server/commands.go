@@ -237,12 +237,12 @@ func (s *Server) commandTime(args []string) string {
 	}
 	switch args[0] {
 	case "set":
-		s.World.SetDayTime(ticks)
+		s.setDayTime(ticks, false)
 	case "add":
 		if args[1] == "day" || args[1] == "noon" || args[1] == "night" || args[1] == "midnight" {
 			return usage
 		}
-		s.World.AdvanceTime(ticks)
+		s.setDayTime(ticks, true)
 	default:
 		return usage
 	}

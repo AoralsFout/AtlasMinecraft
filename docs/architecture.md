@@ -9,6 +9,7 @@ Atlas 在一个 Go 进程中实现 Minecraft Java 1.21.1 的连接协议、部�
 | 启动、出生点预加载和定时保存 | [`cmd/atlas/main.go`](../cmd/atlas/main.go) |
 | TCP 连接和生命周期 | [`server/server.go`](../internal/server/server.go)、[`login.go`](../internal/server/login.go)、[`play.go`](../internal/server/play.go) |
 | 玩家状态与发送队列 | [`player/player.go`](../internal/player/player.go) |
+| 世界单刻执行与区块模拟资格 | [`server/world_tick.go`](../internal/server/world_tick.go)、[`world/tick.go`](../internal/world/tick.go) |
 | 可见玩家和广播接收者 | [`hub/hub.go`](../internal/hub/hub.go) |
 | 区域所有权和区块任务 | [`world/world.go`](../internal/world/world.go)、[`region.go`](../internal/world/region.go) |
 | 区块预约、交付与失败释放的契约 | [`world/chunk_delivery.go`](../internal/world/chunk_delivery.go)、[`player/dimension.go`](../internal/player/dimension.go) |
@@ -17,7 +18,7 @@ Atlas 在一个 Go 进程中实现 Minecraft Java 1.21.1 的连接协议、部�
 | 区块和光照的网络编码 | [`chunkwire/encode.go`](../internal/chunkwire/encode.go) |
 | 主世界生成和维度生成 | [`worldgen/overworld.go`](../internal/worldgen/overworld.go)、[生成文档](worldgen/README.md) |
 | 不依赖世界状态的随机算法 | [`worldgen/randomsource`](../internal/worldgen/randomsource/) |
-| 计划更新的顺序、去重与存档延迟 | [`tickqueue`](../internal/tickqueue/)、[`scheduled_tick_owner.go`](../internal/world/scheduled_tick_owner.go)、[`fluid_runtime.go`](../internal/world/fluid_runtime.go)、[流体与调度对照](worldgen/fluid_simulation_1.21.1.md)；同一所有者管理方块／流体队列，显式按阶段执行并保存；生成保留树边界及熔岩湖请求，叶距与气泡柱在运行时更新，尚未接入默认服务端时钟 |
+| 计划更新的顺序、去重与存档延迟 | [`tickqueue`](../internal/tickqueue/)、[`scheduled_tick_owner.go`](../internal/world/scheduled_tick_owner.go)、[`fluid_runtime.go`](../internal/world/fluid_runtime.go)、[流体与调度对照](worldgen/fluid_simulation_1.21.1.md)；同一所有者管理方块／流体队列，按阶段执行并保存；生成保留树边界及熔岩湖请求，叶距与气泡柱由计划方块刻处理 |
 
 ## 主要依赖
 
@@ -44,6 +45,8 @@ flowchart TD
 ```
 
 `world.World` 表示单个维度的运行状态。`Server` 管理主世界、下界和末地的实例；它们使用同一个根存档的世界设置和玩家数据，各自读写对应的区块与实体区域。
+
+主循环逐刻推进三个维度，每次唤醒最多追赶五刻。单个维度可按调用方提供的区块范围依次执行计划方块、流体和下落实体阶段。启动时没有区块模拟票据，因此主循环只推进时间并继续处理传送门。`/time set` 和 `/time add` 只修改昼夜时间，计划更新使用游戏时间。
 
 生成算法不依赖 `server`、`player` 或世界运行实例。`randomsource` 只负责随机流与种子运算，可以独立验证。顶层 `worldgen` 保留原有随机类型和构造入口，维持现有调用者的兼容性。
 
