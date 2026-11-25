@@ -103,6 +103,7 @@ type spawnScanResult struct {
 // over one loaded chunk. Unloaded chunks report ok=false without generating.
 type spawnScanQuery struct {
 	cx, cz int32
+	column *BlockPosition
 	result chan spawnScanResult
 }
 
@@ -283,6 +284,11 @@ func (r *Region) run() {
 			k := chunkKey{msg.cx, msg.cz}
 			if ch := r.chunks[k]; ch != nil {
 				ch.lastAccess = time.Now()
+				if p := msg.column; p != nil {
+					y, ok := respawnSurfaceY(ch, int(p.X&15), int(p.Z&15))
+					msg.result <- spawnScanResult{x: p.X, y: y, z: p.Z, ok: ok}
+					continue
+				}
 				x, y, z, ok := findSafeSpawnColumn(ch)
 				msg.result <- spawnScanResult{x: x, y: y, z: z, ok: ok}
 				continue

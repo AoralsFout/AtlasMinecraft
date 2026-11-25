@@ -46,7 +46,7 @@ func (p *Player) GameMode() int8 {
 func (p *Player) SimulationPosition() (dimension string, x, z float64, spectator, active bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.playReady {
+	if !p.playReady || p.awaitingCredits {
 		return "", 0, 0, false, false
 	}
 	select {
@@ -80,6 +80,7 @@ func (p *Player) ResetWorld(name string, pos [3]float64, yaw, pitch float32, res
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.worldEpoch++
+	p.awaitingCredits = false
 	p.portalDuration = 0
 	p.dimension = name
 	p.x, p.y, p.z = pos[0], pos[1], pos[2]

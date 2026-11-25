@@ -17,11 +17,39 @@ func (p *Player) SetPortalCooldown(ticks int32) {
 func (p *Player) BeginPortalCheck() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.portalChecking || !p.playReady {
+	if p.portalChecking || !p.playReady || p.awaitingCredits {
 		return false
 	}
 	p.portalChecking = true
 	return true
+}
+
+func (p *Player) SeenCredits() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.seenCredits
+}
+
+func (p *Player) SetSeenCredits(seen bool) {
+	p.mu.Lock()
+	p.seenCredits = seen
+	p.mu.Unlock()
+}
+
+func (p *Player) BeginEndCredits() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.seenCredits || !p.playReady {
+		return false
+	}
+	p.seenCredits, p.awaitingCredits = true, true
+	return true
+}
+
+func (p *Player) AwaitingEndCredits() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.awaitingCredits
 }
 
 func (p *Player) EndPortalCheck(transferred bool) {

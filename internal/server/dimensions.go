@@ -88,8 +88,12 @@ func dimensionTypeID(name string) int32 {
 }
 func (s *Server) respawnPayload(p *player.Player, w *world.World) []byte {
 	mode := p.GameMode()
+	keep := byte(3)
+	if p.AwaitingEndCredits() {
+		keep = 1 // PlayerList.respawn keeps attributes and recreates entity data.
+	}
 	return proto.NewWriter().VarInt(dimensionTypeID(w.DimensionName())).String(w.DimensionName()).I64(w.HashedSeed()).I8(mode).I8(mode).
-		Bool(false).Bool(w.IsFlat()).Bool(false).VarInt(0).U8(3).Payload()
+		Bool(false).Bool(w.IsFlat()).Bool(false).VarInt(0).U8(keep).Payload()
 }
 
 // TeleportToDimension loads the destination before resetting the client's
@@ -99,31 +103,21 @@ func (s *Server) TeleportToDimension(p *player.Player, name string, xyz [3]float
 }
 
 func (s *Server) teleportToDimension(p *player.Player, name string, xyz [3]float64, rotation *[2]float32) error {
-	return s.teleportFromWorld(p, name, xyz, rotation, nil)
+	p.MovementMu.Lock()
+	defer p.MovementMu.Unlock()
+	if p.AwaitingEndCredits() {
+		return errors.New("player is viewing the End credits")
+	}
+	return s.teleportLocked(p, name, xyz, rotation, false, nil)
 }
 
-func (s *Server) teleportFromWorld(p *player.Player, name string, xyz [3]float64, rotation *[2]float32, source *player.WorldSink) error {
+func (s *Server) teleportLocked(p *player.Player, name string, xyz [3]float64, rotation *[2]float32, respawn bool, beforeMove func() error) error {
 	w, ok := s.WorldInDimension(name)
 	if !ok {
 		return fmt.Errorf("dimension %s is unavailable", name)
 	}
 	if err := validateCommandCoordinates(xyz, false); err != nil {
 		return err
-	}
-	p.MovementMu.Lock()
-	defer p.MovementMu.Unlock()
-	if source != nil {
-		if !source.Current() || !p.PlayReady() {
-			return errors.New("portal source world changed")
-		}
-		select {
-		case <-p.Done:
-			return errors.New("player disconnected during portal preparation")
-		default:
-		}
-		if _, kind, err := s.playerPortalContact(p, s.PlayerWorld(p)); err != nil || kind == "" {
-			return errors.New("player left the portal during preparation")
-		}
 	}
 	p.CancelPendingChunks()
 	cx, cz := int32(math.Floor(xyz[0]/16)), int32(math.Floor(xyz[2]/16))
@@ -132,12 +126,24 @@ func (s *Server) teleportFromWorld(p *player.Player, name string, xyz [3]float64
 		s.requestChunksAround(p, oldX, oldZ)
 		return err
 	}
+	select {
+	case <-p.Done:
+		return errors.New("player disconnected during teleport")
+	default:
+	}
+	if beforeMove != nil {
+		if err := beforeMove(); err != nil {
+			oldX, oldZ := p.ChunkPos()
+			s.requestChunksAround(p, oldX, oldZ)
+			return err
+		}
+	}
 	_, _, _, yaw, pitch, _ := p.Pos()
 	if rotation != nil {
 		yaw, pitch = rotation[0], rotation[1]
 	}
 	s.closeChest(p, 255, true)
-	if p.Dimension() == w.DimensionName() {
+	if !respawn && p.Dimension() == w.DimensionName() {
 		s.entityMu.Lock()
 		changed := p.SetPos(xyz[0], xyz[1], xyz[2], yaw, pitch, false)
 		s.syncPosition(p)
@@ -157,6 +163,11 @@ func (s *Server) teleportFromWorld(p *player.Player, name string, xyz [3]float64
 	p.ResetWorld(w.DimensionName(), xyz, yaw, pitch, s.respawnPayload(p, w))
 	s.updateVisibilityLocked(p)
 	s.entityMu.Unlock()
+	if respawn {
+		s.sendInventory(p)
+		p.SendPacket(proto.SEntityMetadata, playerSkinMetadata(p))
+		p.SendPacket(proto.SEntityMetadata, playerPoseMetadata(p))
+	}
 	sx, sy, sz, angle := w.SpawnPoint()
 	p.SendPacket(proto.SSpawnPosition, proto.NewWriter().I64(proto.PackPosition(sx, sy, sz)).F32(angle).Payload())
 	s.sendWorldState(p)

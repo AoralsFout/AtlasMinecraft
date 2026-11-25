@@ -434,6 +434,8 @@ func (s *Server) commandSpawnpoint(source *player.Player, args []string) string 
 	}
 	x, y, z := int32(xyz[0]), int32(xyz[1]), int32(xyz[2])
 	spawnWorld := s.PlayerWorld(source)
+	target.SaveMu.Lock()
+	defer target.SaveMu.Unlock()
 	if err := spawnWorld.SetPlayerSpawn(target.UUID, x, y, z, angle); err != nil {
 		return "Spawn point update failed: " + err.Error()
 	}

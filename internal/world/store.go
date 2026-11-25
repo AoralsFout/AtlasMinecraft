@@ -34,6 +34,7 @@ type PlayerPosition struct {
 	Flying         bool
 	Dimension      string
 	PortalCooldown int32
+	SeenCredits    bool
 }
 
 func validPlayerPosition(p PlayerPosition) bool {

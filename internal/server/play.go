@@ -77,6 +77,7 @@ func (s *Server) handlePlay(fc *proto.FramedConn, name string, uuid [16]byte, vi
 	if hasSaved {
 		px, py, pz = saved.X, saved.Y, saved.Z
 		p.SetPortalCooldown(saved.PortalCooldown)
+		p.SetSeenCredits(saved.SeenCredits)
 		yaw, pitch = saved.Yaw, saved.Pitch
 		p.SetFlying(saved.Flying)
 	}
@@ -253,12 +254,28 @@ func noisyPlayPacket(id int32) bool {
 // handlePlayPacket dispatches one serverbound play packet. Returns false to
 // end the connection.
 func (s *Server) handlePlayPacket(p *player.Player, id int32, payload []byte) bool {
+	if p.AwaitingEndCredits() && id != proto.CClientCommand && id != proto.CKeepAlive {
+		return true
+	}
 	switch id {
 	case proto.CTeleportConfirm:
 		if teleportID, err := proto.NewReader(payload).VarInt(); err == nil {
 			p.ConfirmTeleport(teleportID)
 		}
-	case proto.CCustomPayload, proto.CClientCommand:
+	case proto.CClientCommand:
+		r := proto.NewReader(payload)
+		if action, err := r.VarInt(); err == nil && action == 0 && r.Remaining() == 0 {
+			p.MovementMu.Lock()
+			if p.AwaitingEndCredits() {
+				if err := s.returnFromEndLocked(p, true); err != nil {
+					p.MovementMu.Unlock()
+					slog.Warn("End credits respawn failed", "player", p.Name, "error", err)
+					return false
+				}
+			}
+			p.MovementMu.Unlock()
+		}
+	case proto.CCustomPayload:
 		// acknowledged / not implemented
 	case proto.CPlayerAbilities:
 		if flags, err := proto.NewReader(payload).U8(); err == nil {
@@ -393,7 +410,7 @@ func (s *Server) relayChat(p *player.Player, message string) {
 func (s *Server) handleMovement(p *player.Player, id int32, payload []byte) {
 	p.MovementMu.Lock()
 	defer p.MovementMu.Unlock()
-	if p.TeleportPending() {
+	if p.TeleportPending() || p.AwaitingEndCredits() {
 		return
 	}
 	r := proto.NewReader(payload)

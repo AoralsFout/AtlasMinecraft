@@ -72,6 +72,8 @@ type Player struct {
 	portalCooldown  int32
 	portalDuration  int32
 	portalChecking  bool
+	seenCredits     bool
+	awaitingCredits bool
 }
 
 // New creates a player with sane defaults (creative mode, view distance 8).
@@ -168,7 +170,11 @@ func (p *Player) CancelPendingChunks() {
 }
 
 func (p *Player) SetPlayReady(v bool) { p.mu.Lock(); p.playReady = v; p.mu.Unlock() }
-func (p *Player) PlayReady() bool     { p.mu.Lock(); defer p.mu.Unlock(); return p.playReady }
+func (p *Player) PlayReady() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.playReady && !p.awaitingCredits
+}
 func (p *Player) BeginTeleport(id int32) {
 	p.mu.Lock()
 	p.teleportID = id

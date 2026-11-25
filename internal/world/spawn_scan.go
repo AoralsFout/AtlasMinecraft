@@ -27,6 +27,14 @@ func findSafeSpawnColumn(ch *Chunk) (int32, int32, int32, bool) {
 // vanilla's per-column checks: reject fluid surfaces, then scan down for the
 // first top-face-full block.
 func safeSpawnY(ch *Chunk, lx, lz int) (int32, bool) {
+	y, ok := respawnSurfaceY(ch, lx, lz)
+	if !ok || !spawnBodyFits(ch, lx, lz, y) {
+		return 0, false
+	}
+	return y, true
+}
+
+func respawnSurfaceY(ch *Chunk, lx, lz int) (int32, bool) {
 	// Top-down classification with "not found" sentinels just below ch.minY,
 	// mirroring vanilla heightmap top-block values.
 	motion, surface, ocean := int32(ch.minY-1), int32(ch.minY-1), int32(ch.minY-1)
@@ -63,11 +71,7 @@ func safeSpawnY(ch *Chunk, lx, lz int) (int32, bool) {
 		if !stateFlag(faceFullFlags, state) {
 			continue
 		}
-		feetY := y + 1
-		if !spawnBodyFits(ch, lx, lz, feetY) {
-			return 0, false
-		}
-		return feetY, true
+		return y + 1, true
 	}
 	return 0, false
 }

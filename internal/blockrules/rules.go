@@ -29,6 +29,7 @@ type Rules struct {
 	Replaceable, FallThrough, TopSturdy, Offset, Solid, SolidRender bool
 	FaceSturdy                                                      [6]bool // down, up, north, south, west, east
 	TopCenter, BottomCenter, ConnectionException                    bool
+	CanRespawnInside                                                bool
 }
 
 func Lookup(state uint32) (Rules, error) {
@@ -61,6 +62,7 @@ func Lookup(state uint32) (Rules, error) {
 	entry := data.States[state]
 	flags := entry[1]
 	rules := Rules{Boxes: data.Shapes[entry[0]], Replaceable: flags&1 != 0, FallThrough: flags&2 != 0, TopSturdy: flags&4 != 0, Offset: flags&8 != 0, Solid: flags&16 != 0, SolidRender: flags&32 != 0, TopCenter: flags&(1<<12) != 0, BottomCenter: flags&(1<<13) != 0, ConnectionException: flags&(1<<14) != 0}
+	rules.CanRespawnInside = flags&(1<<15) != 0
 	for face := range rules.FaceSturdy {
 		rules.FaceSturdy[face] = flags&(1<<(6+face)) != 0
 	}

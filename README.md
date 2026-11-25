@@ -141,8 +141,10 @@ current working directory, so launch it from `run/` to use the local save.
 - Flint and steel/fire charges activate valid Nether portal frames. Player
   contact uses the original creative delay and cooldown, 8:1 coordinates,
   existing portal search, exit creation, relative position and collision checks.
-  Overworld End portals rebuild the original End arrival platform. End return,
-  gateway travel, frame-break cleanup and the dragon fight remain incomplete.
+  End portals in the Overworld and Nether rebuild the End arrival platform
+  and keep its chunks active for 300 ticks. Players return to their personal
+  or shared spawn, passing through the credits on their first exit. Gateway
+  travel, frame-break cleanup and the dragon fight remain incomplete.
 - 20 ticks/second world clock and weather controls (clear, rain, thunder)
 - Client command tree, chat commands, and console commands: `help`, `list`,
   `where`, `tps`, `mspt`, `status` (`sysinfo`), `seed`, `op`, `deop`, `time`,
@@ -330,7 +332,7 @@ to [-180, 180). `/setworldspawn` persists `SpawnX/SpawnY/SpawnZ/SpawnAngle` in
 prepares the surrounding chunks like vanilla's spawn ticket. New players join
 exactly at that stored point. `/spawnpoint` writes the vanilla
 `SpawnX/SpawnY/SpawnZ/SpawnAngle/SpawnForced/SpawnDimension` playerdata tags
-for later respawn handling. This remains a
+used when returning from the End. This remains a
 supported subset of vanilla commands/selector syntax; full selector filters,
 multi-target teleport, teleport facing arguments, weather duration and
 `setblock destroy` are not implemented.

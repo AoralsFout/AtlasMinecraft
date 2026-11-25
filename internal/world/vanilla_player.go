@@ -54,6 +54,8 @@ func (v *VanillaSave) loadPlayer(uuid [16]byte) (PlayerPosition, bool, error) {
 		flying, _ := abilities.Number("flying")
 		p.Flying = flying != 0
 	}
+	seen, _ := o.Number("seenCredits")
+	p.SeenCredits = seen != 0
 	if cooldown, ok := o.Number("PortalCooldown"); ok {
 		if cooldown < 0 || cooldown > 2147483647 {
 			return PlayerPosition{}, false, errors.New("invalid player portal cooldown")
@@ -68,6 +70,44 @@ func (v *VanillaSave) loadPlayer(uuid [16]byte) (PlayerPosition, bool, error) {
 
 func (v *VanillaSave) savePlayer(uuid [16]byte, p PlayerPosition) error {
 	return v.savePlayerState(uuid, p, nil)
+}
+
+type PersonalSpawn struct {
+	BlockPosition
+	Dimension string
+	Angle     float32
+	Forced    bool
+}
+
+func (w *World) PlayerSpawn(uuid [16]byte) (PersonalSpawn, bool, error) {
+	if w.store == nil {
+		return PersonalSpawn{}, false, nil
+	}
+	v := w.store.vanilla
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	data, err := readGzip(v.playerPath(uuid))
+	if errors.Is(err, os.ErrNotExist) {
+		return PersonalSpawn{}, false, nil
+	}
+	if err != nil {
+		return PersonalSpawn{}, false, err
+	}
+	_, root, err := nbt.Parse(data)
+	if err != nil {
+		return PersonalSpawn{}, false, err
+	}
+	o, _ := root.Object()
+	x, xOK := o.Number("SpawnX")
+	y, yOK := o.Number("SpawnY")
+	z, zOK := o.Number("SpawnZ")
+	if !xOK || !yOK || !zOK {
+		return PersonalSpawn{}, false, nil
+	}
+	dimension, _ := o.Text("SpawnDimension")
+	angle, _ := o["SpawnAngle"].Value.(float32)
+	forced, _ := o.Number("SpawnForced")
+	return PersonalSpawn{BlockPosition{int32(x), int32(y), int32(z)}, dimension, angle, forced != 0}, true, nil
 }
 
 // setPlayerSpawn writes the vanilla personal respawn point tags into the
@@ -161,6 +201,9 @@ func (v *VanillaSave) savePlayerState(uuid [16]byte, p PlayerPosition, inventory
 	}
 	o["Dimension"] = nbt.Tag{Type: nbt.String, Value: destination.name}
 	o["PortalCooldown"] = nbt.Tag{Type: nbt.Int, Value: p.PortalCooldown}
+	if p.SeenCredits {
+		o["seenCredits"] = nbt.Tag{Type: nbt.Byte, Value: int8(1)}
+	}
 	o["Pos"] = nbt.Tag{Type: nbt.List, ListType: nbt.Double, Value: []nbt.Tag{
 		{Type: nbt.Double, Value: p.X}, {Type: nbt.Double, Value: p.Y}, {Type: nbt.Double, Value: p.Z},
 	}}

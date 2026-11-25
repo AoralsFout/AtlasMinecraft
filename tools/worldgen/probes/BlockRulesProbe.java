@@ -23,6 +23,8 @@ public final class BlockRulesProbe {
         Method connectionException=Class.forName("dfy").getMethod("j",Class.forName("dtc"));
         Method offset=Class.forName("dtb$a").getMethod("q");
         Method solid=Class.forName("dtb$a").getMethod("e");
+        Method block=Class.forName("dtb$a").getMethod("b");
+        Method canRespawnInside=Class.forName("dfy").getMethod("a",Class.forName("dtc"));
         Method solidRender=Class.forName("dtb$a").getMethod("i",Class.forName("dcc"),Class.forName("jd"));
         List<List<double[]>> shapes=new ArrayList<>();
         Map<String,Integer> shapeIDs=new HashMap<>();
@@ -46,6 +48,7 @@ public final class BlockRulesProbe {
             if((boolean)centerSupport.invoke(state,world,origin,Class.forName("ji").getField("b").get(null),Class.forName("doa").getField("b").get(null))) flags|=1<<12;
             if((boolean)centerSupport.invoke(state,world,origin,Class.forName("ji").getField("a").get(null),Class.forName("doa").getField("b").get(null))) flags|=1<<13;
             if((boolean)connectionException.invoke(null,state)) flags|=1<<14;
+            if((boolean)canRespawnInside.invoke(block.invoke(state),state)) flags|=1<<15;
             states.add(new int[]{shapeID,flags});
         }
         Map<String,Object> output=new TreeMap<>();output.put("shapes",shapes);output.put("states",states);

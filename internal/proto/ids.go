@@ -101,7 +101,11 @@ const (
 )
 
 // Game Event reasons (SGameStateChange), protocol 767.
-const GameEventLevelChunksLoadStart byte = 13
+const (
+	GameEventNoRespawnBlock       byte = 0
+	GameEventWinGame              byte = 4
+	GameEventLevelChunksLoadStart byte = 13
+)
 
 // Play, serverbound.
 const (

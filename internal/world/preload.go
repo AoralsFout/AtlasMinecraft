@@ -150,8 +150,12 @@ func (w *World) initializeSpawnFromScan(ctx context.Context) error {
 
 // scanChunkForSpawn runs the vanilla spawn column scan on one loaded chunk.
 func (w *World) scanChunkForSpawn(ctx context.Context, cx, cz int32) (spawnScanResult, error) {
+	return w.scanSpawn(ctx, cx, cz, nil)
+}
+
+func (w *World) scanSpawn(ctx context.Context, cx, cz int32, column *BlockPosition) (spawnScanResult, error) {
 	result := make(chan spawnScanResult, 1)
-	if err := w.post(ctx, cx, cz, spawnScanQuery{cx: cx, cz: cz, result: result}); err != nil {
+	if err := w.post(ctx, cx, cz, spawnScanQuery{cx: cx, cz: cz, column: column, result: result}); err != nil {
 		return spawnScanResult{}, err
 	}
 	select {

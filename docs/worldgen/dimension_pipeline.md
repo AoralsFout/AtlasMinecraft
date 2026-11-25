@@ -81,12 +81,16 @@ relative player position and rotates yaw/velocity when axes change. It uses
 the stock collision search volume, expanded block-shape union and closest free
 point, including position-dependent shape offsets. No free point retains the
 original candidate, as in vanilla. Border metadata is read at the saved size;
-active border lerp/ticks have not been implemented. End exit/credits/dragon
-mechanics and portal frame break/update semantics remain incomplete.
+active border lerp/ticks have not been implemented. Dragon mechanics and
+portal frame break/update semantics remain incomplete.
 
 `PrepareEndArrival` shares the feature's platform placement helper and rebuilds
 the stock arrival geometry: obsidian at Y=48 and cleared air at Y=49..51 around
-(100,49,0). Players arrive at (100.5,49,0.5), facing west (yaw 90). Replacement
+(100,49,0). Players arrive at (100.5,49,0.5), facing west (yaw 90) with their
+previous pitch. Entry places a level-30 portal ticket. On exit the player
+returns to their personal or shared spawn, with a client respawn acknowledgement
+after the first credits event. [Vanilla observations](../world_tick_1.21.1.md#玩家穿过末地传送门).
+Replacement
 block drops require the still-incomplete runtime entity system.
 
 `OpenDimension(hub, workers, rootDir, dimension)` and
