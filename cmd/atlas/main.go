@@ -264,6 +264,7 @@ func runWorldClock(ctx context.Context, s *server.Server) {
 	tick := time.NewTicker(tickInterval)
 	defer tick.Stop()
 	lastTick := time.Now()
+	lastTickError := ""
 	save := time.NewTicker(30 * time.Second)
 	defer save.Stop()
 	for {
@@ -275,9 +276,13 @@ func runWorldClock(ctx context.Context, s *server.Server) {
 				if ctx.Err() != nil {
 					return
 				}
-				// The server supplies simulation ranges once chunk tickets are available.
-				if err := s.TickWorlds(nil); err != nil {
-					slog.Error("world tick failed", "error", err)
+				if err := s.TickWorlds(); err != nil {
+					if detail := err.Error(); detail != lastTickError {
+						slog.Error("world tick failed", "error", err)
+						lastTickError = detail
+					}
+				} else {
+					lastTickError = ""
 				}
 				lastTick = lastTick.Add(tickInterval)
 			}

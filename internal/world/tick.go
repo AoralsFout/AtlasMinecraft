@@ -2,8 +2,9 @@ package world
 
 import "fmt"
 
-// TickChunks selects which loaded chunks can run each phase. Predicates must
-// be pure and nonblocking. A nil predicate disables its phase for this tick.
+// TickChunks selects which loaded chunks can run each phase. Predicates are
+// read-only and cannot call chunk actors. Blocks runs under the queue lock.
+// A nil predicate disables its phase for this tick.
 type TickChunks struct {
 	Blocks   func(x, z int32) bool // Scheduled blocks and fluids.
 	Entities func(x, z int32) bool
@@ -15,6 +16,10 @@ type TickChunks struct {
 func (w *World) Tick(chunks TickChunks) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
+	return w.tickLocked(chunks)
+}
+
+func (w *World) tickLocked(chunks TickChunks) error {
 	select {
 	case <-w.done:
 		return ErrWorldClosed

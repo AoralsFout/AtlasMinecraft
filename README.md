@@ -78,9 +78,9 @@ current working directory, so launch it from `run/` to use the local save.
   across region boundaries. Fences, bars and panes update their connections.
   Visible players receive mainhand, offhand and armor equipment updates.
 - Initial block updates remove unsupported grass/flowers and both halves of
-  double plants. Sand/red sand/gravel enqueue delayed gravity updates. Explicit
-  scheduled execution supports falling entities and item creation/persistence;
-  default clock/ticket integration and the subsequent item lifecycle remain incomplete.
+  double plants. Sand/red sand/gravel enqueue delayed gravity updates. The
+  server clock runs scheduled updates and falling entity physics in player-ticketed
+  chunks. Falling entity packet updates and the subsequent item lifecycle remain incomplete.
 - Chat (system-chat relay), keep-alive heartbeat with mismatch kick
 - Java world save: block edits, world age/daytime/weather, player position,
   inventory and creative flight state survive restart; joining players receive their own
@@ -127,10 +127,10 @@ current working directory, so launch it from `run/` to use the local save.
   Nether fossils, Nether ruined portals and Bastions join the actual chunk/save pipeline.
   End cities include loot chests, Shulkers and Elytra item frames. Generated
   bubble columns and cross-tree leaf distances retain delayed requests and update
-  through explicit scheduled execution after generation.
+  when their chunks become eligible for scheduled execution.
   All Overworld structure families are enabled. Generation fluid requests retain
   their original type, priority and order in `fluid_ticks`; broad block-handler
-  coverage, default clock/ticket integration and full-world equivalence remain incomplete. Players can
+  coverage and full-world equivalence remain incomplete. Players can
   switch dimensions and retain their dimension, position, inventory and edits
   across logout/restart. Generated End crystals and supported structure NPCs
   are saved in independent dimension entity regions and sent after terrain.
@@ -150,7 +150,7 @@ current working directory, so launch it from `run/` to use the local save.
   namespaced vanilla aliases for supported commands. Help entries can be
   clicked to insert a command; messages support named and RGB text colors.
 - `server.properties` for address, port, MOTD, player limit, online mode, view distance,
-  advertised simulation distance, world path, and seed; persistent
+  simulation distance, world path, and seed; persistent
   vanilla-shaped `ops.json` with UUID-checked operators
 - Vanilla-style readable `[HH:mm:ss] [Server thread/INFO]: ...` logs, including
   startup ASCII art, build time, player chat, and issued commands; separate
@@ -172,8 +172,11 @@ they are absent. Supported properties are `server-ip`, `server-port`, `motd`,
 ignored at startup. Explicit command-line flags override these properties.
 Both distance values currently support 2 through 16 chunks. The view distance
 limits chunk streaming and player visibility to the smaller of the server and
-client settings. The simulation distance is sent in the join packet; Atlas
-does not yet implement vanilla entity and block ticking within that radius.
+client settings. `simulation-distance` sets the square radius around each playing
+player for falling-entity ticks. Scheduled block and fluid ticks extend one chunk
+farther, with another loaded-only ring for their neighbors. Atlas combines all
+player tickets within each dimension and prepares these chunks asynchronously.
+The available handlers and other ticking systems remain incomplete.
 For a new normal or flat world, a blank `level-seed` chooses a
 random seed; numeric values and text values (Java string hash) are accepted.
 The seed is saved in `level.dat`. The new flat preset uses the stock four

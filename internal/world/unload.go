@@ -19,8 +19,8 @@ type unloadResult struct {
 
 // UnloadIdle releases saved chunks outside every player's view, together with
 // their packet buffers and dense lighting columns. A one-chunk border remains
-// available for lighting and block interactions. Recent direct API accesses
-// are retained for maxIdle; dirty chunks are saved before anything is released.
+// available for lighting and block interactions. Simulation tickets and recent
+// direct accesses also retain chunks. Dirty chunks are saved before release.
 func (w *World) UnloadIdle(maxIdle time.Duration) (int, error) {
 	if maxIdle < 0 {
 		return 0, fmt.Errorf("negative chunk idle timeout")
@@ -61,6 +61,9 @@ func (w *World) UnloadIdle(maxIdle time.Duration) (int, error) {
 
 func (r *Region) chunkInUse(key chunkKey) bool {
 	if r.genQueued[key] || len(r.pending[key])+len(r.pendingLoads[key])+len(r.pendingReady[key])+len(r.pendingEdits[key])+len(r.pendingSurfaces[key]) != 0 {
+		return true
+	}
+	if _, retained := r.world.simulationDistance(key); retained {
 		return true
 	}
 	if r.world.hub != nil {

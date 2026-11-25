@@ -6,16 +6,25 @@ import (
 	"fmt"
 )
 
-// TickWorlds advances all dimensions by one tick. Chunks are keyed by dimension;
-// worlds without an entry advance only their clocks. A simulation error is
-// reported with its dimension while the other worlds still get their tick.
-func (s *Server) TickWorlds(chunks map[string]world.TickChunks) error {
+// TickWorlds advances all dimensions using one snapshot of online players.
+// An error in one dimension does not prevent the other worlds from ticking.
+func (s *Server) TickWorlds() error {
 	s.worldClockMu.Lock()
 	defer s.worldClockMu.Unlock()
+	centers := make(map[string]map[world.ChunkPosition]struct{})
+	for _, p := range s.Hub.Snapshot() {
+		dimension, x, z, active := p.SimulationCenter()
+		if active {
+			if centers[dimension] == nil {
+				centers[dimension] = make(map[world.ChunkPosition]struct{})
+			}
+			centers[dimension][world.ChunkPosition{X: x, Z: z}] = struct{}{}
+		}
+	}
 	var errs []error
 	for _, w := range s.Worlds() {
 		name := w.DimensionName()
-		if err := w.Tick(chunks[name]); err != nil {
+		if err := w.TickPlayers(centers[name], int32(s.Cfg.SimulationDistance)); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 	}

@@ -30,6 +30,25 @@ func (p *Player) WorldPosition() (string, float64, float64, float64, float32, fl
 	return name, p.x, p.y, p.z, p.yaw, p.pitch, p.flying
 }
 
+// SimulationCenter reads dimension, chunk and play state as one snapshot.
+func (p *Player) SimulationCenter() (dimension string, x, z int32, active bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.playReady {
+		return "", 0, 0, false
+	}
+	select {
+	case <-p.Done:
+		return "", 0, 0, false
+	default:
+	}
+	dimension = p.dimension
+	if dimension == "" {
+		dimension = "minecraft:overworld"
+	}
+	return dimension, p.cx, p.cz, true
+}
+
 func (p *Player) WorldPositionWithPortalCooldown() (string, float64, float64, float64, float32, float32, bool, int32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

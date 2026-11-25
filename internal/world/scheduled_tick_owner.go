@@ -206,8 +206,18 @@ func (o *scheduledTickOwner) scheduleBlock(p worldgen.FeaturePosition, name stri
 }
 
 func (o *scheduledTickOwner) ready(h *chunkScheduledTicks) bool {
-	for x := h.x - 1; x <= h.x+1; x++ {
-		for z := h.z - 1; z <= h.z+1; z++ {
+	return o.neighborhoodLoadedLocked(h.x, h.z, 1)
+}
+
+func (o *scheduledTickOwner) neighborhoodLoaded(cx, cz, radius int32) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.neighborhoodLoadedLocked(cx, cz, radius)
+}
+
+func (o *scheduledTickOwner) neighborhoodLoadedLocked(cx, cz, radius int32) bool {
+	for x := cx - radius; x <= cx+radius; x++ {
+		for z := cz - radius; z <= cz+radius; z++ {
 			if o.chunks[tickqueue.ChunkKey(x, z)] == nil {
 				return false
 			}

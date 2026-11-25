@@ -45,6 +45,8 @@ type World struct {
 	scheduledTicks  *scheduledTickOwner
 	tickRandom      *worldgen.LegacyRandom // runtime stream, independent of terrain RNG
 	fallingEntities fallingEntityOrder
+	simulation      atomic.Pointer[simulationTickets]
+	simulationWake  chan struct{}
 }
 
 var ErrWorldClosed = errors.New("world is closed")
@@ -84,6 +86,7 @@ func newWorld(hub HubView, genWorkers int, store *Store, meta worldMeta) *World 
 		store:          store,
 		meta:           meta,
 		scheduledTicks: newScheduledTickOwner(meta.Age),
+		simulationWake: make(chan struct{}, 1),
 		workers:        genWorkers,
 		done:           make(chan struct{}),
 	}
@@ -104,6 +107,9 @@ func newWorld(hub HubView, genWorkers int, store *Store, meta worldMeta) *World 
 		w.loadChunk = func(int32, int32) (*Chunk, error) { return nil, ErrVanillaGenerationUnavailable }
 	}
 	w.lighting, w.lightErr = light.New(int(w.dimension.minY), int(w.dimension.maxY-w.dimension.minY), w.dimension.hasSky)
+	w.generation.simulationDistance = w.simulationDistance
+	w.wg.Add(1)
+	go w.requestSimulationChunks()
 	for i := 0; i < genWorkers; i++ {
 		w.wg.Add(1)
 		go w.genWorker()

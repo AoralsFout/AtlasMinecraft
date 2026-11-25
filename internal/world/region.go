@@ -172,7 +172,8 @@ func (r *Region) run() {
 				}
 			}
 			r.pending[k] = wanted
-			if len(wanted) > 0 || len(r.pendingLoads[k])+len(r.pendingReady[k])+len(r.pendingEdits[k])+len(r.pendingSurfaces[k]) > 0 {
+			_, simulation := r.world.simulationDistance(k)
+			if simulation || len(wanted) > 0 || len(r.pendingLoads[k])+len(r.pendingReady[k])+len(r.pendingEdits[k])+len(r.pendingSurfaces[k]) > 0 {
 				r.queueGeneration(k)
 			} else {
 				delete(r.pending, k)
@@ -209,6 +210,14 @@ func (r *Region) run() {
 			msg.result <- r.portalChunkSnapshot(msg)
 		case saveRegion:
 			msg.result <- r.saveChunks()
+		case simulationChunkLoads:
+			for _, key := range msg.chunks {
+				if r.chunks[key] == nil && !r.genQueued[key] && r.unavailable[key] == nil {
+					if _, wanted := r.world.simulationDistance(key); wanted {
+						r.queueGeneration(key)
+					}
+				}
+			}
 		case chunkEnsure:
 			k := chunkKey{msg.cx, msg.cz}
 			if err := r.unavailable[k]; err != nil {

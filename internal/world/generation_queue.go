@@ -15,10 +15,11 @@ type generationTask struct {
 // Priorities use current player positions, so a distant teleport never waits
 // behind hundreds of obsolete requests from the previous view.
 type generationQueue struct {
-	mu      sync.Mutex
-	pending map[chunkKey]*generationTask
-	wake    chan struct{}
-	order   uint64
+	mu                 sync.Mutex
+	pending            map[chunkKey]*generationTask
+	wake               chan struct{}
+	order              uint64
+	simulationDistance func(chunkKey) (int32, bool)
 }
 
 func newGenerationQueue() *generationQueue {
@@ -59,6 +60,12 @@ func (q *generationQueue) next(done <-chan struct{}) (genJob, bool) {
 					if distance, wanted := sink.ChunkPriority(key.x, key.z); wanted {
 						priority = min(priority, distance)
 					}
+				}
+			}
+			if priority == math.MaxInt64 && q.simulationDistance != nil {
+				if distance, wanted := q.simulationDistance(key); wanted {
+					// Simulation-only loads follow blocking loads and client terrain.
+					priority = math.MaxInt64/2 + int64(distance)
 				}
 			}
 			if priority == math.MaxInt64 {

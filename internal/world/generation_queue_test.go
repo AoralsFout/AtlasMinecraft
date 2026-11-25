@@ -39,6 +39,35 @@ func TestGenerationQueuePrioritizesCurrentViewAndBlockingLoads(t *testing.T) {
 	}
 }
 
+func TestGenerationQueuePrioritizesAndCancelsSimulationOnlyLoads(t *testing.T) {
+	q := newGenerationQueue()
+	needed := map[chunkKey]int32{{1, 0}: 1, {2, 0}: 2}
+	q.simulationDistance = func(key chunkKey) (int32, bool) {
+		distance, ok := needed[key]
+		return distance, ok
+	}
+	q.enqueue(genJob{cx: 2}, nil, false, true)
+	q.enqueue(genJob{cx: 1}, nil, false, true)
+	p := player.New("viewer", [16]byte{}, 1, nil)
+	sink := p.WorldPacketSink()
+	sink.ReserveChunk(5, 0)
+	q.enqueue(genJob{cx: 5}, []ChunkReceiver{sink}, false, true)
+	done := make(chan struct{})
+	job, _ := q.next(done)
+	if job.cx != 5 || job.canceled {
+		t.Fatalf("view should take priority over simulation-only loads, got %+v", job)
+	}
+	job, _ = q.next(done)
+	if job.cx != 1 || job.canceled {
+		t.Fatalf("nearest simulation ticket should load next, got %+v", job)
+	}
+	delete(needed, chunkKey{2, 0})
+	job, _ = q.next(done)
+	if job.cx != 2 || !job.canceled {
+		t.Fatalf("expired ticket should cancel queued work, got %+v", job)
+	}
+}
+
 func TestTeleportCancelsOldQueueWithoutGeneratingIt(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var mu sync.Mutex
