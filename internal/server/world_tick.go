@@ -1,6 +1,7 @@
 package server
 
 import (
+	"atlas/internal/proto"
 	"atlas/internal/world"
 	"errors"
 	"fmt"
@@ -20,9 +21,21 @@ func (s *Server) TickWorlds() error {
 		}
 	}
 	var errs []error
+	s.serverTicks++
+	syncTime := s.serverTicks%20 == 0
+	// Vanilla synchronizes each dimension before ticking it. The Overworld
+	// packet sees the previous age; derived levels see the newly advanced age.
 	for _, w := range s.Worlds() {
 		name := w.DimensionName()
-		if err := w.TickPlayers(byDimension[name], int32(s.Cfg.SimulationDistance)); err != nil {
+		if syncTime {
+			payload := timePayload(w)
+			for _, p := range players {
+				if sink := p.WorldPacketSinkInDimension(name); sink != nil && p.PlayReady() {
+					sink.SendPacket(proto.SUpdateTime, payload)
+				}
+			}
+		}
+		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance)); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 		s.publishFallingEntities(w, players)
@@ -30,14 +43,13 @@ func (s *Server) TickWorlds() error {
 	return errors.Join(errs...)
 }
 
-func (s *Server) setDayTime(ticks int64, relative bool) {
+func (s *Server) setDayTime(ticks int64, relative bool) int64 {
 	s.worldClockMu.Lock()
 	defer s.worldClockMu.Unlock()
 	if relative {
 		_, current := s.World.Time()
 		ticks += current
 	}
-	for _, w := range s.Worlds() {
-		w.SetDayTime(ticks)
-	}
+	s.World.SetDayTime(ticks)
+	return ticks
 }

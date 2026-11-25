@@ -17,6 +17,11 @@ func (s *Server) AddWorld(w *world.World) error {
 	if w == nil {
 		return errors.New("cannot register nil world")
 	}
+	if s.World == nil {
+		return errors.New("cannot attach a dimension without the Overworld")
+	}
+	s.worldClockMu.Lock()
+	defer s.worldClockMu.Unlock()
 	s.worldMu.Lock()
 	defer s.worldMu.Unlock()
 	if s.worlds == nil {
@@ -26,7 +31,7 @@ func (s *Server) AddWorld(w *world.World) error {
 	if _, exists := s.worlds[name]; exists {
 		return fmt.Errorf("dimension %s already registered", name)
 	}
-	w.ShareRandomSequences(s.World)
+	w.ShareLevelData(s.World)
 	s.worlds[name] = w
 	return nil
 }
@@ -55,18 +60,23 @@ func (s *Server) Worlds() []*world.World {
 	if len(s.worlds) == 0 {
 		return []*world.World{s.World}
 	}
+	// Overworld advances the shared clock before any derived level ticks.
 	var names []string
 	for name := range s.worlds {
-		names = append(names, name)
+		if name != "minecraft:overworld" {
+			names = append(names, name)
+		}
 	}
 	sort.Strings(names)
-	var worlds []*world.World
+	worlds := []*world.World{s.World}
 	for _, name := range names {
 		worlds = append(worlds, s.worlds[name])
 	}
 	return worlds
 }
 func (s *Server) SaveWorlds() error {
+	s.worldClockMu.Lock()
+	defer s.worldClockMu.Unlock()
 	var errs []error
 	for _, w := range s.Worlds() {
 		if err := w.Save(); err != nil {
@@ -189,7 +199,7 @@ func boolFlyingFlag(p *player.Player) int8 {
 }
 
 func (s *Server) commandExecuteIn(source *player.Player, args []string) string {
-	usage := "Usage: /execute in <dimension> run <tp|setblock|forceload|gamerule> ..."
+	usage := "Usage: /execute in <dimension> run <tp|setblock|forceload|gamerule|time> ..."
 	if len(args) < 4 || args[0] != "in" || args[2] != "run" {
 		return usage
 	}
@@ -227,6 +237,8 @@ func (s *Server) commandExecuteIn(source *player.Player, args []string) string {
 		return nil
 	}
 	switch command {
+	case "time":
+		return s.commandTime(args)
 	case "gamerule":
 		return s.commandGameRule(args)
 	case "forceload":
@@ -247,6 +259,6 @@ func (s *Server) commandExecuteIn(source *player.Player, args []string) string {
 		}
 		return s.commandSetBlockIn(source, args, targetWorld)
 	default:
-		return "Supported execute commands: tp, setblock, forceload, gamerule"
+		return "Supported execute commands: tp, setblock, forceload, gamerule, time"
 	}
 }

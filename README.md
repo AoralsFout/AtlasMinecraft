@@ -145,7 +145,9 @@ current working directory, so launch it from `run/` to use the local save.
   and keep its chunks active for 300 ticks. Players return to their personal
   or shared spawn, passing through the credits on their first exit. Gateway
   travel, frame-break cleanup and the dragon fight remain incomplete.
-- 20 ticks/second world clock and weather controls (clear, rain, thunder)
+- A shared 20 ticks/second clock across all three dimensions. Turning off
+  `doDaylightCycle` freezes the daylight counter while scheduled updates keep
+  running. Weather controls support clear, rain and thunder.
 - Client command tree, chat commands, and console commands: `help`, `list`,
   `where`, `tps`, `mspt`, `status` (`sysinfo`), `seed`, `op`, `deop`, `time`,
   `weather`, `tp`, `setblock`, `save`, and `execute in <dimension> run tp|setblock`
@@ -287,6 +289,7 @@ Public in-game commands are `/help`, `/list`, and `/where`. Names passed to
 /op <player>
 /deop <player>
 /time set day|noon|night|midnight|<time>
+/gamerule doDaylightCycle [true|false]
 /time add <time>
 /weather clear|rain|thunder
 /tp <destination player>

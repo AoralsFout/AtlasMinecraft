@@ -148,7 +148,7 @@ func newWorldLevelAt(name string, seed int64, flat bool, spawnX, spawnZ int32) n
 		}),
 		"LevelName": stringTag(name), "initialized": byteTag(1),
 		"LastPlayed": {Type: nbt.Long, Value: time.Now().UnixMilli()},
-		"Time":       {Type: nbt.Long, Value: int64(0)}, "DayTime": {Type: nbt.Long, Value: int64(6000)},
+		"Time":       {Type: nbt.Long, Value: int64(0)}, "DayTime": {Type: nbt.Long, Value: int64(0)},
 		"SpawnX": {Type: nbt.Int, Value: spawnX}, "SpawnY": {Type: nbt.Int, Value: spawnY},
 		"SpawnZ": {Type: nbt.Int, Value: spawnZ}, "SpawnAngle": {Type: nbt.Float, Value: float32(0)},
 		"raining": byteTag(0), "thundering": byteTag(0),

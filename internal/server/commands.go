@@ -25,8 +25,18 @@ func (s *Server) operatorLevel(p *player.Player) int {
 }
 
 func (s *Server) sendTime(p *player.Player) {
-	age, day := s.World.Time()
-	p.SendPacket(proto.SUpdateTime, proto.NewWriter().I64(age).I64(day).Payload())
+	p.SendPacket(proto.SUpdateTime, timePayload(s.World))
+}
+
+func timePayload(w *world.World) []byte {
+	age, day, running := w.TimeState()
+	if !running {
+		day = -day
+		if day == 0 {
+			day = -1
+		}
+	}
+	return proto.NewWriter().I64(age).I64(day).Payload()
 }
 
 func weatherPacket(reason byte, value float32) []byte {
@@ -57,10 +67,6 @@ func (s *Server) sendWeather(p *player.Player) {
 func (s *Server) sendWorldState(p *player.Player) {
 	s.sendTime(p)
 	s.sendWeather(p)
-}
-
-func (s *Server) broadcastWorldState() {
-	s.Hub.Each(func(p *player.Player) { s.sendWorldState(p) })
 }
 
 // RunCommand executes a client command and sends the result back to its source.
@@ -173,7 +179,7 @@ func (s *Server) executeCommand(source *player.Player, line string) string {
 		if err := s.World.SetWeather(strings.ToLower(args[0])); err != nil {
 			return err.Error()
 		}
-		s.broadcastWorldState()
+		s.Hub.Each(s.sendWeather)
 		if err := s.SaveWorlds(); err != nil {
 			return "Weather changed, but saving failed: " + err.Error()
 		}
@@ -191,7 +197,7 @@ func (s *Server) executeCommand(source *player.Player, line string) string {
 			return "Usage: /save-all [flush]"
 		}
 		s.SavePlayers()
-		if err := s.World.Save(); err != nil {
+		if err := s.SaveWorlds(); err != nil {
 			return "World save failed: " + err.Error()
 		}
 		return "World saved."
@@ -209,9 +215,9 @@ func (s *Server) commandTime(args []string) string {
 			case "daytime":
 				return fmt.Sprintf("Daytime: %d ticks", day%24000)
 			case "gametime":
-				return fmt.Sprintf("Game time: %d ticks", age)
+				return fmt.Sprintf("Game time: %d ticks", age%2147483647)
 			case "day":
-				return fmt.Sprintf("Day: %d", day/24000)
+				return fmt.Sprintf("Day: %d", (day/24000)%2147483647)
 			default:
 				return usage
 			}
@@ -238,22 +244,21 @@ func (s *Server) commandTime(args []string) string {
 			return usage
 		}
 	}
+	var day int64
 	switch args[0] {
 	case "set":
-		s.setDayTime(ticks, false)
+		day = s.setDayTime(ticks, false)
 	case "add":
 		if args[1] == "day" || args[1] == "noon" || args[1] == "night" || args[1] == "midnight" {
 			return usage
 		}
-		s.setDayTime(ticks, true)
+		day = s.setDayTime(ticks, true)
 	default:
 		return usage
 	}
-	s.Hub.Each(func(p *player.Player) { s.sendTime(p) })
 	if err := s.World.Save(); err != nil {
 		return "Time changed, but saving failed: " + err.Error()
 	}
-	_, day := s.World.Time()
 	if args[0] == "add" {
 		return fmt.Sprintf("Added %d ticks; daytime: %d ticks", ticks, day%24000)
 	}
@@ -364,8 +369,27 @@ func (s *Server) commandSetWorldSpawn(source *player.Player, args []string) stri
 }
 
 func (s *Server) commandGameRule(args []string) string {
-	if len(args) < 1 || len(args) > 2 || args[0] != "spawnChunkRadius" {
-		return "Usage: /gamerule spawnChunkRadius [0..32]"
+	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule doDaylightCycle [true|false]"
+	if len(args) < 1 || len(args) > 2 {
+		return usage
+	}
+	if args[0] == "doDaylightCycle" {
+		if len(args) == 1 {
+			_, _, enabled := s.World.TimeState()
+			return fmt.Sprintf("Gamerule doDaylightCycle is currently set to: %t", enabled)
+		}
+		if args[1] != "true" && args[1] != "false" {
+			return "Invalid doDaylightCycle: expected true or false"
+		}
+		s.worldClockMu.Lock()
+		defer s.worldClockMu.Unlock()
+		if err := s.World.SetDaylightCycle(args[1] == "true"); err != nil {
+			return err.Error()
+		}
+		return "Gamerule doDaylightCycle is now set to: " + args[1]
+	}
+	if args[0] != "spawnChunkRadius" {
+		return usage
 	}
 	if len(args) == 1 {
 		return fmt.Sprintf("Gamerule spawnChunkRadius is currently set to: %d", s.World.SpawnChunkRadius())

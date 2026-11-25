@@ -23,8 +23,8 @@ var commandSpecs = []commandSpec{
 	{"mspt", 2, "/mspt", nil},
 	{"status", 2, "/status (alias: /sysinfo)", []string{"sysinfo"}},
 	{"seed", 2, "/seed", []string{"minecraft:seed"}},
-	{"gamerule", 2, "/gamerule spawnChunkRadius [0..32]", []string{"minecraft:gamerule"}},
-	{"execute", 2, "/execute in <dimension> run <tp|setblock|forceload|gamerule> ...", []string{"minecraft:execute"}},
+	{"gamerule", 2, "/gamerule spawnChunkRadius [0..32] | /gamerule doDaylightCycle [true|false]", []string{"minecraft:gamerule"}},
+	{"execute", 2, "/execute in <dimension> run <tp|setblock|forceload|gamerule|time> ...", []string{"minecraft:execute"}},
 	{"forceload", 2, "/forceload <add|remove> <x z> [x z] | remove all | query [x z]", []string{"minecraft:forceload"}},
 	{"time", 2, "/time <query [daytime|gametime|day]|set <day|noon|night|midnight|time>|add <time>>", []string{"minecraft:time"}},
 	{"weather", 2, "/weather <clear|rain|thunder>", []string{"minecraft:weather"}},
@@ -105,6 +105,8 @@ func declareCommandsPayloadForLevel(level int) []byte {
 			case "gamerule":
 				rule := literal(root, "spawnChunkRadius", true)
 				argument(rule, "value", 3, proto.NewWriter().U8(3).I32(0).I32(32).Payload(), true, false)
+				daylight := literal(root, "doDaylightCycle", true)
+				argument(daylight, "value", 0, nil, true, false)
 			case "forceload":
 				for _, op := range []string{"add", "remove"} {
 					branch := literal(root, op, false)

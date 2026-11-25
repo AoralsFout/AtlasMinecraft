@@ -1,10 +1,8 @@
 package world
 
 import (
-	"atlas/internal/nbt"
 	"errors"
 	"fmt"
-	"maps"
 	"strconv"
 )
 
@@ -71,26 +69,10 @@ func (w *World) SetSpawnChunkRadius(radius int32) error {
 		return nil
 	}
 	v := w.store.vanilla
-	if err := v.saveSpawnRadius(radius); err != nil {
+	if err := v.saveGameRule("spawnChunkRadius", strconv.FormatInt(int64(radius), 10), nil); err != nil {
 		return err
 	}
 	w.spawnRadius = radius
 	w.refreshSpawnTicketsLocked()
 	return nil
-}
-
-func (v *VanillaSave) saveSpawnRadius(radius int32) error {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	root, _ := v.root.Object()
-	old, _ := root.Object("Data")
-	level := maps.Clone(old)
-	oldRules, _ := level.Object("GameRules")
-	rules := maps.Clone(oldRules)
-	if rules == nil {
-		rules = nbt.Object{}
-	}
-	rules["spawnChunkRadius"] = nbt.Tag{Type: nbt.String, Value: strconv.FormatInt(int64(radius), 10)}
-	level["GameRules"] = nbt.Tag{Type: nbt.Compound, Value: rules}
-	return v.commitLevelLocked(level)
 }

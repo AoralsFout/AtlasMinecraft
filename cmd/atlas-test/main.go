@@ -316,7 +316,13 @@ func testLoginAndPlay() {
 			if initialDay < 0 {
 				r := proto.NewReader(payload)
 				r.I64()
-				initialDay, _ = r.I64()
+				if day, err := r.I64(); err == nil {
+					// Protocol 767 freezes daylight with a negative value.
+					if day < 0 {
+						day = -day
+					}
+					initialDay = day
+				}
 			}
 		case proto.SGameStateChange:
 			r := proto.NewReader(payload)

@@ -387,13 +387,38 @@ func (v *VanillaSave) generateFlat(cx, cz int32) (*Chunk, error) {
 	return c, nil
 }
 
+// A daylight rule change saves the exact clock it stops or resumes in the
+// same level.dat replacement. Other rules leave both counters untouched.
+func (v *VanillaSave) saveGameRule(name, value string, clock *worldMeta) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	root, _ := v.root.Object()
+	old, _ := root.Object("Data")
+	level := maps.Clone(old)
+	oldRules, _ := old.Object("GameRules")
+	rules := maps.Clone(oldRules)
+	if rules == nil {
+		rules = nbt.Object{}
+	}
+	rules[name] = nbt.Tag{Type: nbt.String, Value: value}
+	level["GameRules"] = nbt.Tag{Type: nbt.Compound, Value: rules}
+	if clock != nil {
+		level["Time"] = nbt.Tag{Type: nbt.Long, Value: clock.Age}
+		level["DayTime"] = nbt.Tag{Type: nbt.Long, Value: clock.DayTime}
+	}
+	return v.commitLevelLocked(level)
+}
+
 func (v *VanillaSave) loadMeta() (worldMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	o, _ := v.root.Object()
 	data, _ := o.Object("Data")
 	age, _ := data.Number("Time")
-	day, _ := data.Number("DayTime")
+	day, ok := data.Number("DayTime")
+	if !ok {
+		day = age
+	}
 	rain, _ := data.Number("raining")
 	thunder, _ := data.Number("thundering")
 	weather := "clear"

@@ -141,12 +141,11 @@ func (s *Server) handlePlay(fc *proto.FramedConn, name string, uuid [16]byte, vi
 		send(proto.SSystemChat, systemChat("World generation: "+warning))
 	}
 
-	// Background tickers: keep-alives and periodic time sync. SendPacket is
-	// safe from any goroutine, so these live outside the read loop.
+	// Connection maintenance runs independently of the server tick rate.
 	keep := time.NewTicker(15 * time.Second)
 	defer keep.Stop()
-	clock := time.NewTicker(5 * time.Second)
-	defer clock.Stop()
+	chestCheck := time.NewTicker(5 * time.Second)
+	defer chestCheck.Stop()
 	go func() {
 		for {
 			select {
@@ -154,8 +153,7 @@ func (s *Server) handlePlay(fc *proto.FramedConn, name string, uuid [16]byte, vi
 				id := time.Now().UnixNano()
 				p.SetKeepAliveID(id)
 				p.SendPacket(proto.SKeepAlive, proto.NewWriter().I64(id).Payload())
-			case <-clock.C:
-				s.sendTime(p)
+			case <-chestCheck.C:
 				s.validateChestSession(p)
 			case <-p.Done:
 				return

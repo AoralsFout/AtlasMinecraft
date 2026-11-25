@@ -13,6 +13,16 @@ type dimensionSettings struct {
 	hasSky       bool
 }
 
+// ShareLevelData attaches a dimension before it joins the server tick loop.
+func (w *World) ShareLevelData(overworld *World) {
+	w.blockUpdateMu.Lock()
+	defer w.blockUpdateMu.Unlock()
+	w.randomSequences = overworld.randomSequences
+	w.clockSource.Store(overworld)
+	age, _ := overworld.Time()
+	w.scheduledTicks.setTime(age)
+}
+
 func builtinDimension(name string) (dimensionSettings, error) {
 	switch name {
 	case "overworld", "minecraft:overworld":

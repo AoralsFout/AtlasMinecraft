@@ -24,14 +24,6 @@ type lootSequences struct {
 	includeID, dirty bool
 }
 
-func (w *World) ShareRandomSequences(overworld *World) {
-	if overworld != nil {
-		w.blockUpdateMu.Lock()
-		defer w.blockUpdateMu.Unlock()
-		w.randomSequences = overworld.randomSequences
-	}
-}
-
 func (s *lootSequences) load() error {
 	if s.streams != nil {
 		return nil

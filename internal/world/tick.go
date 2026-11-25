@@ -20,12 +20,17 @@ type TickChunks struct {
 func (w *World) Tick(chunks TickChunks) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
-	return w.tickLocked(chunks, false)
+	return w.tickLocked(chunks, false, false)
 }
 
-func (w *World) tickLocked(chunks TickChunks, live bool) error {
+func (w *World) tickLocked(chunks TickChunks, live, serverTick bool) error {
 	select {
 	case <-w.done:
+		// The remaining dimensions still run on this server tick even if the
+		// Overworld's simulation has already closed.
+		if serverTick && w.clockSource.Load() == nil {
+			w.advanceClock(1)
+		}
 		return ErrWorldClosed
 	default:
 	}
@@ -36,7 +41,12 @@ func (w *World) tickLocked(chunks TickChunks, live bool) error {
 		// Advancing first would add a game tick after every unload/reload.
 		runtime, failure = w.prepareScheduledLocked(chunks.Blocks, live)
 	}
-	w.advanceTimeLocked(1)
+	if serverTick && w.clockSource.Load() != nil {
+		age, _ := w.Time()
+		w.scheduledTicks.setTime(age)
+	} else {
+		w.advanceTimeLocked(1)
+	}
 	if chunks.Blocks != nil {
 		if runtime != nil && (failure == nil || live) {
 			failure = errors.Join(failure, runtime.tickScheduledQueues(chunks.Blocks, true, live))

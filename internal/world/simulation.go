@@ -87,6 +87,16 @@ func (w *World) publishSimulationTickets(centers map[ChunkPosition]struct{}, dis
 // TickPlayers updates this dimension's player tickets and executes one game
 // tick. Changes to the ticket set wake asynchronous terrain preparation.
 func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
+	return w.tickPlayers(players, distance, false)
+}
+
+// TickServerPlayers advances the clock for the Overworld and runs each
+// derived dimension's queues at the same age. The server ticks Overworld first.
+func (w *World) TickServerPlayers(players []SimulationPlayer, distance int32) error {
+	return w.tickPlayers(players, distance, true)
+}
+
+func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTick bool) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
 	w.simulationPlayers = append(w.simulationPlayers[:0], players...)
@@ -99,7 +109,7 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 		}
 		if w.spawnRadius == 0 && len(w.portalTicks) == 0 {
 			w.simulation.Store(nil)
-			return w.tickLocked(TickChunks{}, true)
+			return w.tickLocked(TickChunks{}, true, serverTick)
 		}
 	} else {
 		w.emptyTicks = 0
@@ -123,7 +133,7 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 	if entityPhase {
 		chunks.Entities = w.entityTickEligible
 	}
-	return w.tickLocked(chunks, true)
+	return w.tickLocked(chunks, true, serverTick)
 }
 
 func (w *World) entityTickEligible(x, z int32) bool {

@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +32,8 @@ type World struct {
 	saveMu          sync.Mutex
 	blockUpdateMu   sync.Mutex // edits plus neighbor propagation; actors never acquire it
 	meta            worldMeta
+	clockSource     atomic.Pointer[World] // Registered dimensions read the Overworld clock.
+	daylightStopped bool                  // guarded by the clock owner's stateMu
 	seed            int64
 	workers         int
 	loadChunk       func(int32, int32) (*Chunk, error)
@@ -66,7 +70,7 @@ type genJob struct {
 }
 
 func New(hub HubView, genWorkers int) *World {
-	return newWorld(hub, genWorkers, nil, worldMeta{DayTime: 6000, Weather: "clear"})
+	return newWorld(hub, genWorkers, nil, worldMeta{Weather: "clear"})
 }
 
 // Open loads an existing Java Edition save. An incompatible or corrupt save
@@ -91,6 +95,7 @@ func newWorld(hub HubView, genWorkers int, store *Store, meta worldMeta) *World 
 		done:           make(chan struct{}),
 	}
 	w.randomSequences = &lootSequences{}
+	w.daylightStopped = !strings.EqualFold(w.gameRule("doDaylightCycle", "true"), "true")
 	w.dimension, _ = builtinDimension("minecraft:overworld")
 	if store != nil {
 		w.dimension = store.vanilla.dimension
@@ -390,9 +395,23 @@ func (w *World) SetBlock(x, y, z int32, state uint32) error {
 }
 
 func (w *World) Time() (age, dayTime int64) {
+	age, dayTime, _ = w.TimeState()
+	return age, dayTime
+}
+
+func (w *World) clockOwner() *World {
+	if source := w.clockSource.Load(); source != nil {
+		return source
+	}
+	return w
+}
+
+// TimeState is one coherent snapshot for the protocol's two longs.
+func (w *World) TimeState() (age, dayTime int64, daylightCycle bool) {
+	w = w.clockOwner()
 	w.stateMu.RLock()
 	defer w.stateMu.RUnlock()
-	return w.meta.Age, w.meta.DayTime
+	return w.meta.Age, w.meta.DayTime, !w.daylightStopped
 }
 
 func (w *World) AdvanceTime(ticks int64) {
@@ -402,18 +421,53 @@ func (w *World) AdvanceTime(ticks int64) {
 }
 
 func (w *World) advanceTimeLocked(ticks int64) {
+	w.scheduledTicks.setTime(w.advanceClock(ticks))
+}
+
+func (w *World) advanceClock(ticks int64) int64 {
+	w = w.clockOwner()
 	w.stateMu.Lock()
+	defer w.stateMu.Unlock()
 	w.meta.Age += ticks
-	w.meta.DayTime += ticks
-	age := w.meta.Age
-	w.stateMu.Unlock()
-	w.scheduledTicks.setTime(age)
+	if !w.daylightStopped {
+		w.meta.DayTime += ticks
+	}
+	return w.meta.Age
 }
 
 func (w *World) SetDayTime(ticks int64) {
+	w = w.clockOwner()
+	w.blockUpdateMu.Lock()
+	defer w.blockUpdateMu.Unlock()
 	w.stateMu.Lock()
 	w.meta.DayTime = ticks
 	w.stateMu.Unlock()
+}
+
+func (w *World) SetDaylightCycle(enabled bool) error {
+	w = w.clockOwner()
+	if w.DimensionName() != "minecraft:overworld" {
+		return errors.New("doDaylightCycle is owned by the Overworld")
+	}
+	w.blockUpdateMu.Lock()
+	defer w.blockUpdateMu.Unlock()
+	w.saveMu.Lock()
+	defer w.saveMu.Unlock()
+	select {
+	case <-w.done:
+		return ErrWorldClosed
+	default:
+	}
+	if w.store != nil {
+		age, day := w.Time()
+		if err := w.store.vanilla.saveGameRule("doDaylightCycle", strconv.FormatBool(enabled), &worldMeta{Age: age, DayTime: day}); err != nil {
+			return err
+		}
+	}
+	w.stateMu.Lock()
+	w.daylightStopped = !enabled
+	w.stateMu.Unlock()
+	return nil
 }
 
 func (w *World) Weather() string {

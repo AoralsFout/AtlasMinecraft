@@ -77,7 +77,7 @@ func readCommandTree(t *testing.T, payload []byte) []commandNode {
 				if err != nil || options != 3 {
 					t.Fatal("entity argument must be a single player")
 				}
-			case 7, 8, 9, 10, 12, 27:
+			case 0, 7, 8, 9, 10, 12, 27:
 			case 42:
 				minimum, err := r.I32()
 				if err != nil || minimum != 0 {
@@ -145,6 +145,7 @@ func TestCommandTreesMatchPermissionsAndTypedArguments(t *testing.T) {
 			{[]string{"setblock", "pos", "block", "keep"}, -1, true},
 			{[]string{"time", "set", "time"}, 42, true}, {[]string{"time", "query", "day"}, -1, true},
 			{[]string{"gamerule", "spawnChunkRadius"}, -1, true}, {[]string{"gamerule", "spawnChunkRadius", "value"}, 3, true},
+			{[]string{"gamerule", "doDaylightCycle", "value"}, 0, true},
 			{[]string{"weather", "rain"}, -1, true}, {[]string{"save-all", "flush"}, -1, true},
 			{[]string{"setworldspawn"}, -1, true}, {[]string{"setworldspawn", "pos"}, 8, true},
 			{[]string{"setworldspawn", "pos", "angle"}, 27, true},

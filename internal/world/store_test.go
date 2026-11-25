@@ -12,6 +12,29 @@ import (
 	"testing"
 )
 
+func TestClockReadsMissingDayTimeAndPreservesRuleOnWriteFailure(t *testing.T) {
+	dim, _ := builtinDimension("overworld")
+	v := &VanillaSave{dir: filepath.Join(t.TempDir(), "missing"), dimension: dim, root: newWorldLevel("clock", 1234, true)}
+	root, _ := v.root.Object()
+	data, _ := root.Object("Data")
+	data["Time"] = nbt.Tag{Type: nbt.Long, Value: int64(9876543210)}
+	delete(data, "DayTime")
+	m, err := v.loadMeta()
+	if err != nil || m.Age != 9876543210 || m.DayTime != m.Age {
+		t.Fatalf("legacy time %+v: %v", m, err)
+	}
+	w := &World{store: &Store{vanilla: v}, done: make(chan struct{}), meta: m}
+	if err := w.SetDaylightCycle(false); err == nil {
+		t.Fatal("expected missing parent to prevent the rule write")
+	}
+	if _, _, enabled := w.TimeState(); !enabled {
+		t.Fatal("failed save changed the running clock")
+	}
+	if got := w.gameRule("doDaylightCycle", "true"); got != "true" {
+		t.Fatal("failed save changed level.dat in memory")
+	}
+}
+
 // The user-supplied vanilla/world can be regenerated with a different world
 // preset. Tests that assert the historical superflat layers need that preset.
 func requireLegacyFlatSample(t *testing.T) {

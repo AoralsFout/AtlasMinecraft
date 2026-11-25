@@ -2,12 +2,208 @@ package server
 
 import (
 	"atlas/internal/player"
+	"atlas/internal/proto"
 	"atlas/internal/world"
+	"context"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func drainClockPackets(t *testing.T, p *player.Player) [][2]int64 {
+	t.Helper()
+	var times [][2]int64
+	for len(p.Out) > 0 {
+		packet := <-p.Out
+		if packet.ID != proto.SUpdateTime {
+			continue
+		}
+		r := proto.NewReader(packet.Payload)
+		age, err := r.I64()
+		if err != nil {
+			t.Fatal(err)
+		}
+		day, err := r.I64()
+		if err != nil || r.Remaining() != 0 {
+			t.Fatalf("bad time packet %x", packet.Payload)
+		}
+		times = append(times, [2]int64{age, day})
+	}
+	return times
+}
+
+func TestSharedDaylightCycleAgainstVanilla(t *testing.T) {
+	s, p, dir := dimensionTestServer(t)
+	s.Cfg.SimulationDistance = 1
+	command := func(line, want string) {
+		t.Helper()
+		if got := s.executeCommand(nil, line); !strings.Contains(got, want) {
+			t.Fatalf("%s: %s", line, got)
+		}
+	}
+	check := func(age, day int64, cycle bool) {
+		t.Helper()
+		for _, w := range s.Worlds() {
+			a, d, c := w.TimeState()
+			if a != age || d != day || c != cycle {
+				t.Fatalf("%s time=(%d,%d,%t), want (%d,%d,%t)", w.DimensionName(), a, d, c, age, day, cycle)
+			}
+		}
+	}
+	tick := func() {
+		t.Helper()
+		if err := s.TickWorlds(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(0, 0, true)
+	tick()
+	command("time set 23999", "23999")
+	check(1, 23999, true)
+	tick()
+	check(2, 24000, true)
+	command("execute in minecraft:the_end run gamerule doDaylightCycle false", "now set to: false")
+	tick()
+	check(3, 24000, false)
+	command("execute in minecraft:the_nether run time add 3", "Added 3 ticks")
+	check(3, 24003, false)
+	command("execute in minecraft:the_end run time query day", "Day: 1")
+	command("time set 0", "Time set to 0")
+	s.sendWorldState(p)
+	expectPacket := func(want [2]int64) {
+		t.Helper()
+		got := drainClockPackets(t, p)
+		if len(got) != 1 || got[0] != want {
+			t.Fatalf("time packets %v, want %v", got, want)
+		}
+	}
+	expectPacket([2]int64{3, -1})
+	command("time set 42", "Time set to 42")
+	for _, dim := range []string{"minecraft:the_nether", "minecraft:the_end", "minecraft:overworld"} {
+		if err := s.TeleportToDimension(p, dim, [3]float64{0, 80, 0}); err != nil {
+			t.Fatal(err)
+		}
+		expectPacket([2]int64{3, -42})
+	}
+	command("gamerule doDaylightCycle true", "now set to: true")
+	tick()
+	check(4, 43, true)
+	command("gamerule doDaylightCycle 1", "expected true or false")
+	command("gamerule doDaylightCycle", "currently set to: true")
+	command("gamerule doDaylightCycle false", "now set to: false")
+	command("save-all flush", "World saved")
+	for _, dim := range s.Worlds() {
+		w, err := world.OpenDimension(nil, 1, dir, dim.DimensionName())
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, d, c := w.TimeState()
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if a != 4 || d != 43 || c {
+			t.Fatalf("restored %s: %d,%d,%t", dim.DimensionName(), a, d, c)
+		}
+	}
+}
+
+func TestPeriodicTimePacketsFollowDimensionTickOrder(t *testing.T) {
+	s, ow, _ := dimensionTestServer(t)
+	s.Cfg.SimulationDistance = 1
+	peers := []*player.Player{ow}
+	for i, dim := range []string{"minecraft:the_nether", "minecraft:the_end"} {
+		p := player.New(dim, [16]byte{byte(4 + i)}, int32(4+i), nil)
+		p.SetInitialDimension(dim)
+		p.SetPlayReady(true)
+		if !s.Hub.Join(p) {
+			t.Fatal("join", dim)
+		}
+		peers = append(peers, p)
+	}
+	// Align the first heartbeat with the three-client 1.21.1 trace after
+	// unfreezing at age 1. The heartbeat counter also ran while frozen.
+	s.serverTicks = 15
+	s.World.AdvanceTime(1)
+	s.World.SetDayTime(12000)
+	var trace strings.Builder
+	trace.WriteString("overworld_age,overworld_daytime,nether_age,nether_daytime,end_age,end_daytime\n")
+	for i := int64(1); i <= 65; i++ {
+		if err := s.TickWorlds(); err != nil {
+			t.Fatal(err)
+		}
+		for index, p := range peers {
+			got := drainClockPackets(t, p)
+			if (15+i)%20 != 0 {
+				if len(got) > 0 {
+					t.Fatalf("%s early time sync at %d: %v", p.Dimension(), i, got)
+				}
+				continue
+			}
+			if len(got) != 1 {
+				t.Fatalf("%s tick %d: got %v, want one heartbeat", p.Dimension(), i, got)
+			}
+			if index > 0 {
+				trace.WriteByte(',')
+			}
+			fmt.Fprintf(&trace, "%d,%d", got[0][0], got[0][1])
+		}
+		if (15+i)%20 == 0 {
+			trace.WriteByte('\n')
+		}
+	}
+	native, err := os.ReadFile("../../testdata/protocol/world_time_1.21.1.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := trace.String(), strings.ReplaceAll(string(native), "\r\n", "\n"); got != want {
+		t.Fatalf("time packets:\n%swant vanilla:\n%s", got, want)
+	}
+}
+
+func TestScheduledTicksContinueWithDaylightStopped(t *testing.T) {
+	s, p, _ := dimensionTestServer(t)
+	s.Hub.Leave(p)
+	if err := s.World.SetDaylightCycle(false); err != nil {
+		t.Fatal(err)
+	}
+	sand, err := world.BlockStateID("sand", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := world.ChunkPosition{}
+	for _, w := range s.Worlds() {
+		if _, err := w.SetChunksForced(c, c, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.PrepareDestination(context.Background(), 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.SetBlock(8, 220, 8, sand); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for tick := 1; tick <= 2; tick++ {
+		if err := s.TickWorlds(); err != nil {
+			t.Fatal(err)
+		}
+		want := sand
+		if tick == 2 {
+			want = world.StateAir
+		}
+		for _, w := range s.Worlds() {
+			if age, day := w.Time(); age != int64(tick) || day != 0 {
+				t.Fatal(w.DimensionName(), age, day)
+			}
+			id, err := w.BlockAt(8, 220, 8)
+			if err != nil || id != want {
+				t.Fatalf("%s tick %d: sand state %d, want %d (%v)", w.DimensionName(), tick, id, want, err)
+			}
+		}
+	}
+}
 
 func TestWorldClockAdvancesAllDimensionsAndCommandsChangeOnlyDayTime(t *testing.T) {
 	s, p, _ := dimensionTestServer(t)
