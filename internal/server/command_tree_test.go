@@ -77,7 +77,7 @@ func readCommandTree(t *testing.T, payload []byte) []commandNode {
 				if err != nil || options != 3 {
 					t.Fatal("entity argument must be a single player")
 				}
-			case 7, 8, 10, 12, 27:
+			case 7, 8, 9, 10, 12, 27:
 			case 42:
 				minimum, err := r.I32()
 				if err != nil || minimum != 0 {

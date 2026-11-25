@@ -20,6 +20,18 @@
 
 耕地新增 16 个原版场景，覆盖跨区块灌溉、雨雪差异、覆盖与撤除，以及相同随机条件下灌溉对小麦的影响。存档测试通过玩家放置入口覆盖耕地，重开后按剩余 1 刻执行。实体踩踏与耕地变成完整泥土时的实体抬升留在实体碰撞阶段。[耕地实现](../internal/world/farmland.go) · [存档测试](../internal/world/farmland_test.go)
 
+## 无玩家时的强加载区块
+
+`/forceload add|remove <x z> [x z]` 接受方块坐标，两个端点都计入范围，每次最多操作 256 个区块。`query [x z]` 和 `remove all` 作用于当前维度，也可以通过 `/execute in <dimension> run forceload ...` 操作其他维度。命令成功后票据已存入该维度的 `data/chunks.dat`，区块由后台加载。[命令入口](../internal/server/forceload.go) · [存档读写](../internal/world/forced_chunks.go)
+
+一个强加载中心提供等级 31 的票据。中心可运行实体刻；中心及周围一圈可运行计划方块刻和流体刻；再外一圈提供已加载的邻区。多个来源覆盖同一区块时取最强等级，移除其中一个来源会保留其他来源的资格。随机刻另查是否有非旁观玩家在区块中心 128 格以内，边界取严格小于。[票据合并与阶段资格](../internal/world/simulation.go)
+
+Java 1.21.1 专用服务端对照使用无玩家平坦世界，种子 1234，`spawnChunkRadius=0`。冻结后执行 `forceload add -1600 1600`，得到区块 `[-100,100]`。在有边墙、露天的石底上设置水和灌溉的小麦，把 `randomTickSpeed` 调到 4096，步进 20 刻：水抵达相邻格，小麦仍是年龄 0。保存重启后可查询和移除该票据。仓库保留原版写出的 NBT 样本，Go 测试直接打开它并检查更新后的坐标编码。[原版样本](../testdata/worldgen/forced_chunks_1.21.1.dat) · [存档兼容测试](../internal/world/forced_chunks_test.go)
+
+Atlas 的服务器入口测试另检查玩家离开后的水流计时：5 刻的计划更新先走 2 刻，保存重启后再走 3 刻流出。移除最后一张票据后，新开的出水口保持干燥，空闲卸载可释放整个 5×5 邻域。[服务器回归测试](../internal/server/forceload_test.go)
+
+下一个可独立验收的阶段是主世界出生区块票据。用 `spawnChunkRadius=0`、默认值 2 和迁移出生点三个原版场景核对中心、外圈及无玩家时的阶段资格。随后接入传送门临时票据及到期移除，再处理三维度共享时间与 `doDaylightCycle`。
+
 ## 基线中复现的两个差异
 
 | 场景 | 本次在 Atlas 的实测结果 | 1.21.1 原版行为与修复入口 |

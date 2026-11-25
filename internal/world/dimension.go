@@ -38,7 +38,16 @@ func OpenDimension(hub HubView, genWorkers int, dir, dimension string) (*World, 
 	if err != nil {
 		return nil, err
 	}
-	return newWorld(hub, genWorkers, s, m), nil
+	forced, err := readForcedChunks(s.vanilla)
+	if err != nil {
+		return nil, err
+	}
+	w := newWorld(hub, genWorkers, s, m)
+	w.blockUpdateMu.Lock()
+	w.forced = forced
+	w.publishSimulationTickets(nil, 0)
+	w.blockUpdateMu.Unlock()
+	return w, nil
 }
 
 func OpenStoreDimension(dir, dimension string) (*Store, error) {

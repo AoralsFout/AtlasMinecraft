@@ -16,28 +16,54 @@ type SimulationPlayer struct {
 	Spectator bool
 }
 
-// Player tickets in 1.21.1 cover a square (Chebyshev distance). The block
-// ring and the loaded-only ring supply the 3x3 and 5x5 ticking neighborhoods.
+// Ticket levels propagate in squares (Chebyshev distance). The outer two
+// rings supply the neighbors required for block and entity ticking.
 type simulationTickets struct {
 	centers  map[ChunkPosition]struct{}
 	distance int32
-	chunks   map[chunkKey]int32 // minimum distance to a player, across all tickets
+	chunks   map[chunkKey]simulationChunkTicket
+}
+type simulationChunkTicket struct {
+	distance int32 // generation priority: nearest source
+	level    int32 // strongest ticket: 31 entity, 32 block, 33 loaded
 }
 
-func newSimulationTickets(centers map[ChunkPosition]struct{}, distance int32) *simulationTickets {
-	tickets := &simulationTickets{centers: maps.Clone(centers), distance: distance, chunks: make(map[chunkKey]int32)}
-	const worldChunkLimit = 30_000_000 / 16
-	radius := distance + 2
-	for center := range centers {
-		for x := max(center.X-radius, -worldChunkLimit); x <= min(center.X+radius, worldChunkLimit-1); x++ {
-			for z := max(center.Z-radius, -worldChunkLimit); z <= min(center.Z+radius, worldChunkLimit-1); z++ {
-				key := chunkKey{x, z}
-				d := max(x-center.X, center.X-x, z-center.Z, center.Z-z)
-				if previous, ok := tickets.chunks[key]; !ok || d < previous {
-					tickets.chunks[key] = d
-				}
+const worldChunkLimit = 30_000_000 / 16
+
+func (t *simulationTickets) addCenter(center ChunkPosition, entityRadius int32) {
+	// Border chunks still need their two outer rings for readiness.
+	radius := entityRadius + 2
+	for x := max(center.X-radius, -worldChunkLimit-2); x <= min(center.X+radius, worldChunkLimit+1); x++ {
+		for z := max(center.Z-radius, -worldChunkLimit-2); z <= min(center.Z+radius, worldChunkLimit+1); z++ {
+			key := chunkKey{x, z}
+			d := max(x-center.X, center.X-x, z-center.Z, center.Z-z)
+			ticket := simulationChunkTicket{distance: d, level: 31 + d - entityRadius}
+			if old, ok := t.chunks[key]; ok {
+				ticket.distance = min(old.distance, ticket.distance)
+				ticket.level = min(old.level, ticket.level)
 			}
+			t.chunks[key] = ticket
 		}
+	}
+}
+
+// Published maps are immutable. The caller holds blockUpdateMu.
+func (w *World) publishSimulationTickets(centers map[ChunkPosition]struct{}, distance int32) *simulationTickets {
+	if len(centers) == 0 && len(w.forced.positions) == 0 {
+		w.simulation.Store(nil)
+		return nil
+	}
+	tickets := &simulationTickets{centers: centers, distance: distance, chunks: make(map[chunkKey]simulationChunkTicket)}
+	for center := range centers {
+		tickets.addCenter(center, distance)
+	}
+	for center := range w.forced.positions {
+		tickets.addCenter(center, 0)
+	}
+	w.simulation.Store(tickets)
+	select {
+	case w.simulationWake <- struct{}{}:
+	default:
 	}
 	return tickets
 }
@@ -49,8 +75,10 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 	defer w.blockUpdateMu.Unlock()
 	w.simulationPlayers = append(w.simulationPlayers[:0], players...)
 	tickets := w.simulation.Load()
-	if len(players) == 0 {
-		w.simulation.Store(nil)
+	if len(players) == 0 && len(w.forced.positions) == 0 {
+		if tickets != nil {
+			w.simulation.Store(nil)
+		}
 		return w.tickLocked(TickChunks{}, true)
 	}
 	centers := make(map[ChunkPosition]struct{}, len(players))
@@ -58,17 +86,12 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 		centers[ChunkPosition{int32(math.Floor(p.X / 16)), int32(math.Floor(p.Z / 16))}] = struct{}{}
 	}
 	if tickets == nil || tickets.distance != distance || !maps.Equal(tickets.centers, centers) {
-		tickets = newSimulationTickets(centers, distance)
-		w.simulation.Store(tickets)
-		select {
-		case w.simulationWake <- struct{}{}:
-		default:
-		}
+		tickets = w.publishSimulationTickets(centers, distance)
 	}
 	return w.tickLocked(TickChunks{
 		Blocks: func(x, z int32) bool {
 			d, ok := tickets.chunks[chunkKey{x, z}]
-			return ok && d <= distance+1
+			return ok && d.level <= 32
 		},
 		Random:   w.randomTickEligibleLocked,
 		Entities: w.entityTickEligible,
@@ -81,7 +104,7 @@ func (w *World) entityTickEligible(x, z int32) bool {
 		return false
 	}
 	d, ok := tickets.chunks[chunkKey{x, z}]
-	return ok && d <= tickets.distance && w.scheduledTicks.neighborhoodLoaded(x, z, 2)
+	return ok && d.level <= 31 && w.scheduledTicks.neighborhoodLoaded(x, z, 2)
 }
 
 // RandomTickEligible reports the 1.21.1 chunk gate under the latest player
@@ -107,8 +130,8 @@ func (w *World) randomTickEligibleLocked(x, z int32) bool {
 
 func (w *World) simulationDistance(key chunkKey) (int32, bool) {
 	if tickets := w.simulation.Load(); tickets != nil {
-		distance, ok := tickets.chunks[key]
-		return distance, ok
+		ticket, ok := tickets.chunks[key]
+		return ticket.distance, ok
 	}
 	return 0, false
 }
@@ -153,7 +176,7 @@ func (w *World) requestSimulationChunks() {
 			keys := byRegion[region]
 			sort.Slice(keys, func(i, j int) bool {
 				a, b := keys[i], keys[j]
-				da, db := tickets.chunks[a], tickets.chunks[b]
+				da, db := tickets.chunks[a].distance, tickets.chunks[b].distance
 				if da != db {
 					return da < db
 				}

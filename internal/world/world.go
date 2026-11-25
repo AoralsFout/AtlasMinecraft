@@ -50,6 +50,7 @@ type World struct {
 	simulation      atomic.Pointer[simulationTickets]
 	simulationWake  chan struct{}
 
+	forced            forcedChunks       // guarded by blockUpdateMu
 	simulationPlayers []SimulationPlayer // last dimension snapshot, guarded by blockUpdateMu
 }
 
@@ -68,15 +69,7 @@ func New(hub HubView, genWorkers int) *World {
 // Open loads an existing Java Edition save. An incompatible or corrupt save
 // is an error; it is never silently regenerated.
 func Open(hub HubView, genWorkers int, dir string) (*World, error) {
-	s, err := OpenStore(dir)
-	if err != nil {
-		return nil, err
-	}
-	m, err := s.LoadMeta()
-	if err != nil {
-		return nil, err
-	}
-	return newWorld(hub, genWorkers, s, m), nil
+	return OpenDimension(hub, genWorkers, dir, "minecraft:overworld")
 }
 
 func newWorld(hub HubView, genWorkers int, store *Store, meta worldMeta) *World {

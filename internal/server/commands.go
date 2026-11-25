@@ -99,6 +99,8 @@ func (s *Server) executeCommand(source *player.Player, line string) string {
 	switch cmd {
 	case "help":
 		return commandHelp(s.operatorLevel(source), args)
+	case "forceload":
+		return commandForceLoad(source, args, s.PlayerWorld(source))
 	case "execute":
 		return s.commandExecuteIn(source, args)
 	case "tps", "mspt", "status", "sysinfo":

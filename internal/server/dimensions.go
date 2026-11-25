@@ -178,7 +178,7 @@ func boolFlyingFlag(p *player.Player) int8 {
 }
 
 func (s *Server) commandExecuteIn(source *player.Player, args []string) string {
-	usage := "Usage: /execute in <dimension> run <tp|setblock> ..."
+	usage := "Usage: /execute in <dimension> run <tp|setblock|forceload> ..."
 	if len(args) < 4 || args[0] != "in" || args[2] != "run" {
 		return usage
 	}
@@ -216,6 +216,8 @@ func (s *Server) commandExecuteIn(source *player.Player, args []string) string {
 		return nil
 	}
 	switch command {
+	case "forceload":
+		return commandForceLoad(origin, args, targetWorld)
 	case "tp", "teleport":
 		if len(args) == 3 || len(args) == 4 {
 			if err := resolve(len(args)-3, false); err != nil {
@@ -232,6 +234,6 @@ func (s *Server) commandExecuteIn(source *player.Player, args []string) string {
 		}
 		return s.commandSetBlockIn(source, args, targetWorld)
 	default:
-		return "Supported execute commands: tp, setblock"
+		return "Supported execute commands: tp, setblock, forceload"
 	}
 }

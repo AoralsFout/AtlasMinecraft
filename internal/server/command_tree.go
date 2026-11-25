@@ -23,7 +23,8 @@ var commandSpecs = []commandSpec{
 	{"mspt", 2, "/mspt", nil},
 	{"status", 2, "/status (alias: /sysinfo)", []string{"sysinfo"}},
 	{"seed", 2, "/seed", []string{"minecraft:seed"}},
-	{"execute", 2, "/execute in <dimension> run <tp|setblock> ...", []string{"minecraft:execute"}},
+	{"execute", 2, "/execute in <dimension> run <tp|setblock|forceload> ...", []string{"minecraft:execute"}},
+	{"forceload", 2, "/forceload <add|remove> <x z> [x z] | remove all | query [x z]", []string{"minecraft:forceload"}},
 	{"time", 2, "/time <query [daytime|gametime|day]|set <day|noon|night|midnight|time>|add <time>>", []string{"minecraft:time"}},
 	{"weather", 2, "/weather <clear|rain|thunder>", []string{"minecraft:weather"}},
 	{"tp", 2, "/tp [player] <destination player|x y z> (coordinates accept ~ and ^)", []string{"teleport", "minecraft:tp", "minecraft:teleport"}},
@@ -97,9 +98,20 @@ func declareCommandsPayloadForLevel(level int) []byte {
 			continue
 		}
 		for _, name := range append([]string{spec.name}, spec.aliases...) {
-			executable := spec.name != "execute" && spec.name != "op" && spec.name != "deop" && spec.name != "time" && spec.name != "weather" && spec.name != "tp" && spec.name != "setblock"
+			executable := spec.name != "forceload" && spec.name != "execute" && spec.name != "op" && spec.name != "deop" && spec.name != "time" && spec.name != "weather" && spec.name != "tp" && spec.name != "setblock"
 			root := literal(0, name, executable)
 			switch spec.name {
+			case "forceload":
+				for _, op := range []string{"add", "remove"} {
+					branch := literal(root, op, false)
+					from := argument(branch, "from", 9, nil, true, false)
+					argument(from, "to", 9, nil, true, false)
+					if op == "remove" {
+						literal(branch, "all", true)
+					}
+				}
+				query := literal(root, "query", true)
+				argument(query, "pos", 9, nil, true, false)
 			case "execute":
 				in := literal(root, "in", false)
 				for _, dimension := range []string{"minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"} {
