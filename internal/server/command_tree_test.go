@@ -144,8 +144,9 @@ func TestCommandTreesMatchPermissionsAndTypedArguments(t *testing.T) {
 			{[]string{"setblock", "pos"}, 8, false}, {[]string{"setblock", "pos", "block"}, 12, true},
 			{[]string{"setblock", "pos", "block", "keep"}, -1, true},
 			{[]string{"time", "set", "time"}, 42, true}, {[]string{"time", "query", "day"}, -1, true},
+			{[]string{"gamerule", "spawnChunkRadius"}, -1, true}, {[]string{"gamerule", "spawnChunkRadius", "value"}, 3, true},
 			{[]string{"weather", "rain"}, -1, true}, {[]string{"save-all", "flush"}, -1, true},
-			{[]string{"setworldspawn"}, -1, true}, {[]string{"setworldspawn", "pos"}, 8, false},
+			{[]string{"setworldspawn"}, -1, true}, {[]string{"setworldspawn", "pos"}, 8, true},
 			{[]string{"setworldspawn", "pos", "angle"}, 27, true},
 			{[]string{"spawnpoint", "targets"}, 6, false}, {[]string{"spawnpoint", "targets", "pos"}, 8, false},
 			{[]string{"spawnpoint", "targets", "pos", "angle"}, 27, true},
@@ -155,7 +156,7 @@ func TestCommandTreesMatchPermissionsAndTypedArguments(t *testing.T) {
 				t.Fatalf("level %d invalid path %v: %+v", level, test.path, node)
 			}
 		}
-		for _, name := range []string{"tp", "setblock", "time", "weather"} {
+		for _, name := range []string{"tp", "setblock", "time", "weather", "gamerule"} {
 			if n, _ := treePath(nodes, name); n.executable {
 				t.Fatalf("incomplete /%s marked executable", name)
 			}

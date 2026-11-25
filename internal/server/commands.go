@@ -4,7 +4,6 @@ import (
 	"atlas/internal/player"
 	"atlas/internal/proto"
 	"atlas/internal/world"
-	"context"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -165,6 +164,8 @@ func (s *Server) executeCommand(source *player.Player, line string) string {
 		return "Removed " + args[0] + " from server operators"
 	case "time":
 		return s.commandTime(args)
+	case "gamerule":
+		return s.commandGameRule(args)
 	case "weather":
 		if len(args) != 1 {
 			return "Usage: /weather <clear|rain|thunder>"
@@ -359,12 +360,24 @@ func (s *Server) commandSetWorldSpawn(source *player.Player, args []string) stri
 			}
 		})
 	}
-	// Vanilla keeps the spawn neighborhood loaded via a region ticket;
-	// preparing it here covers joining players until the next restart.
-	if err := s.World.PrepareDestination(context.Background(), x>>4, z>>4); err != nil {
-		return "Spawn point set, but preparing the spawn area failed: " + err.Error()
-	}
 	return fmt.Sprintf("Set the world spawn point to %d, %d, %d [%s]", x, y, z, formatCommandAngle(angle))
+}
+
+func (s *Server) commandGameRule(args []string) string {
+	if len(args) < 1 || len(args) > 2 || args[0] != "spawnChunkRadius" {
+		return "Usage: /gamerule spawnChunkRadius [0..32]"
+	}
+	if len(args) == 1 {
+		return fmt.Sprintf("Gamerule spawnChunkRadius is currently set to: %d", s.World.SpawnChunkRadius())
+	}
+	radius, err := strconv.ParseInt(args[1], 10, 32)
+	if err != nil || strings.HasPrefix(args[1], "+") {
+		return "Invalid spawnChunkRadius: expected an integer between 0 and 32"
+	}
+	if err := s.World.SetSpawnChunkRadius(int32(radius)); err != nil {
+		return err.Error()
+	}
+	return fmt.Sprintf("Gamerule spawnChunkRadius is now set to: %d", radius)
 }
 
 // commandSpawnpoint implements /spawnpoint [<player>] [<x y z> [<angle>]].

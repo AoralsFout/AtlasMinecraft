@@ -130,7 +130,13 @@ func (w *World) initializeSpawnFromScan(ctx context.Context) error {
 				return err
 			}
 			if result.ok {
-				return w.store.vanilla.initializeSpawn(result.x, result.y, result.z)
+				w.blockUpdateMu.Lock()
+				defer w.blockUpdateMu.Unlock()
+				if !w.store.vanilla.spawnUninitialized() {
+					return nil // an explicit spawn won while the scan was running
+				}
+				_, err := w.setSpawnLocked(result.x, result.y, result.z, 0)
+				return err
 			}
 		}
 		if dx == dz || (dx < 0 && dx == -dz) || (dx > 0 && dx == 1-dz) {

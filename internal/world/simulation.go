@@ -19,6 +19,7 @@ type SimulationPlayer struct {
 // Ticket levels propagate in squares (Chebyshev distance). The outer two
 // rings supply the neighbors required for block and entity ticking.
 type simulationTickets struct {
+	spawn    spawnChunkTicket
 	centers  map[ChunkPosition]struct{}
 	distance int32
 	chunks   map[chunkKey]simulationChunkTicket
@@ -49,11 +50,15 @@ func (t *simulationTickets) addCenter(center ChunkPosition, entityRadius int32) 
 
 // Published maps are immutable. The caller holds blockUpdateMu.
 func (w *World) publishSimulationTickets(centers map[ChunkPosition]struct{}, distance int32) *simulationTickets {
-	if len(centers) == 0 && len(w.forced.positions) == 0 {
+	spawn := w.spawnTicketLocked()
+	if len(centers) == 0 && len(w.forced.positions) == 0 && spawn.radius == 0 {
 		w.simulation.Store(nil)
 		return nil
 	}
-	tickets := &simulationTickets{centers: centers, distance: distance, chunks: make(map[chunkKey]simulationChunkTicket)}
+	tickets := &simulationTickets{spawn: spawn, centers: centers, distance: distance, chunks: make(map[chunkKey]simulationChunkTicket)}
+	if spawn.radius > 0 {
+		tickets.addCenter(spawn.center, spawn.radius-1)
+	}
 	for center := range centers {
 		tickets.addCenter(center, distance)
 	}
@@ -75,11 +80,18 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 	defer w.blockUpdateMu.Unlock()
 	w.simulationPlayers = append(w.simulationPlayers[:0], players...)
 	tickets := w.simulation.Load()
+	entityPhase := true
 	if len(players) == 0 && len(w.forced.positions) == 0 {
-		if tickets != nil {
-			w.simulation.Store(nil)
+		entityPhase = w.emptyTicks < 300
+		if entityPhase {
+			w.emptyTicks++
 		}
-		return w.tickLocked(TickChunks{}, true)
+		if w.spawnRadius == 0 {
+			w.simulation.Store(nil)
+			return w.tickLocked(TickChunks{}, true)
+		}
+	} else {
+		w.emptyTicks = 0
 	}
 	centers := make(map[ChunkPosition]struct{}, len(players))
 	for _, p := range players {
@@ -88,14 +100,19 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 	if tickets == nil || tickets.distance != distance || !maps.Equal(tickets.centers, centers) {
 		tickets = w.publishSimulationTickets(centers, distance)
 	}
-	return w.tickLocked(TickChunks{
+	chunks := TickChunks{
 		Blocks: func(x, z int32) bool {
 			d, ok := tickets.chunks[chunkKey{x, z}]
 			return ok && d.level <= 32
 		},
-		Random:   w.randomTickEligibleLocked,
-		Entities: w.entityTickEligible,
-	}, true)
+	}
+	if len(players) > 0 {
+		chunks.Random = w.randomTickEligibleLocked
+	}
+	if entityPhase {
+		chunks.Entities = w.entityTickEligible
+	}
+	return w.tickLocked(chunks, true)
 }
 
 func (w *World) entityTickEligible(x, z int32) bool {

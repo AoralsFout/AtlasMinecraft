@@ -25,6 +25,10 @@ func TestPlayerTickFellsWaterloggedLeavesAndPersistsDrops(t *testing.T) {
 					t.Error(err)
 				}
 			})
+			// This fixture fixes the number of eligible chunks and RNG draws.
+			if err := w.SetSpawnChunkRadius(0); err != nil {
+				t.Fatal(err)
+			}
 			v := w.store.vanilla
 			v.flat.layers = nil
 			for x := int32(-2); x <= 2; x++ {

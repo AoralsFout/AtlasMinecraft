@@ -51,6 +51,8 @@ type World struct {
 	simulationWake  chan struct{}
 
 	forced            forcedChunks       // guarded by blockUpdateMu
+	spawnRadius       int32              // Overworld spawnChunkRadius, guarded by blockUpdateMu
+	emptyTicks        int                // consecutive ticks without players or forced chunks, capped at 300
 	simulationPlayers []SimulationPlayer // last dimension snapshot, guarded by blockUpdateMu
 }
 
@@ -262,7 +264,24 @@ func (w *World) SetSpawn(x, y, z int32, angle float32) (bool, error) {
 	if y < w.MinBuildHeight() || y >= w.MaxBuildHeight() {
 		return false, fmt.Errorf("Y must be >= %d and < %d", w.MinBuildHeight(), w.MaxBuildHeight())
 	}
-	return w.store.vanilla.setSpawn(x, y, z, angle)
+	w.blockUpdateMu.Lock()
+	defer w.blockUpdateMu.Unlock()
+	return w.setSpawnLocked(x, y, z, angle)
+}
+
+func (w *World) setSpawnLocked(x, y, z int32, angle float32) (bool, error) {
+	w.saveMu.Lock()
+	defer w.saveMu.Unlock()
+	select {
+	case <-w.done:
+		return false, ErrWorldClosed
+	default:
+	}
+	changed, err := w.store.vanilla.setSpawn(x, y, z, angle)
+	if err == nil && changed {
+		w.refreshSpawnTicketsLocked()
+	}
+	return changed, err
 }
 
 func (w *World) Seed() int64 { return w.seed }

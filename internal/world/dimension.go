@@ -42,10 +42,20 @@ func OpenDimension(hub HubView, genWorkers int, dir, dimension string) (*World, 
 	if err != nil {
 		return nil, err
 	}
+	radius, err := s.vanilla.savedSpawnRadius()
+	if err != nil {
+		return nil, err
+	}
 	w := newWorld(hub, genWorkers, s, m)
 	w.blockUpdateMu.Lock()
 	w.forced = forced
-	w.publishSimulationTickets(nil, 0)
+	w.spawnRadius = radius
+	// Opening a save for offline reads does not start its game clock.
+	// Restore explicit forced loads immediately; the first TickPlayers also
+	// starts spawn loading for worlds without forced chunks.
+	if len(forced.positions) != 0 {
+		w.publishSimulationTickets(nil, 0)
+	}
 	w.blockUpdateMu.Unlock()
 	return w, nil
 }

@@ -36,6 +36,9 @@ func TestForcedChunkDataAgainstVanilla(t *testing.T) {
 		}
 	})
 	first := ChunkPosition{-100, 100}
+	if err := w.SetSpawnChunkRadius(0); err != nil {
+		t.Fatal(err)
+	}
 	second := ChunkPosition{-99, 100}
 	if got := w.ForcedChunks(); !slices.Equal(got, []ChunkPosition{first}) {
 		t.Fatalf("original centers %v", got)

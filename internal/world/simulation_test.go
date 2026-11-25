@@ -7,6 +7,9 @@ import (
 
 func TestPlayerSimulationLoadsAndRetainsTickingNeighborhoods(t *testing.T) {
 	w, _ := mechanicsWorld(t)
+	if err := w.SetSpawnChunkRadius(0); err != nil {
+		t.Fatal(err)
+	}
 	centers := []SimulationPlayer{{X: 8, Z: 8}}
 	if err := w.TickPlayers(centers, 1); err != nil {
 		t.Fatal(err)

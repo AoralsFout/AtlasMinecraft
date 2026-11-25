@@ -23,7 +23,8 @@ var commandSpecs = []commandSpec{
 	{"mspt", 2, "/mspt", nil},
 	{"status", 2, "/status (alias: /sysinfo)", []string{"sysinfo"}},
 	{"seed", 2, "/seed", []string{"minecraft:seed"}},
-	{"execute", 2, "/execute in <dimension> run <tp|setblock|forceload> ...", []string{"minecraft:execute"}},
+	{"gamerule", 2, "/gamerule spawnChunkRadius [0..32]", []string{"minecraft:gamerule"}},
+	{"execute", 2, "/execute in <dimension> run <tp|setblock|forceload|gamerule> ...", []string{"minecraft:execute"}},
 	{"forceload", 2, "/forceload <add|remove> <x z> [x z] | remove all | query [x z]", []string{"minecraft:forceload"}},
 	{"time", 2, "/time <query [daytime|gametime|day]|set <day|noon|night|midnight|time>|add <time>>", []string{"minecraft:time"}},
 	{"weather", 2, "/weather <clear|rain|thunder>", []string{"minecraft:weather"}},
@@ -98,9 +99,12 @@ func declareCommandsPayloadForLevel(level int) []byte {
 			continue
 		}
 		for _, name := range append([]string{spec.name}, spec.aliases...) {
-			executable := spec.name != "forceload" && spec.name != "execute" && spec.name != "op" && spec.name != "deop" && spec.name != "time" && spec.name != "weather" && spec.name != "tp" && spec.name != "setblock"
+			executable := spec.name != "gamerule" && spec.name != "forceload" && spec.name != "execute" && spec.name != "op" && spec.name != "deop" && spec.name != "time" && spec.name != "weather" && spec.name != "tp" && spec.name != "setblock"
 			root := literal(0, name, executable)
 			switch spec.name {
+			case "gamerule":
+				rule := literal(root, "spawnChunkRadius", true)
+				argument(rule, "value", 3, proto.NewWriter().U8(3).I32(0).I32(32).Payload(), true, false)
 			case "forceload":
 				for _, op := range []string{"add", "remove"} {
 					branch := literal(root, op, false)
@@ -147,7 +151,7 @@ func declareCommandsPayloadForLevel(level int) []byte {
 				argument(target, "destination", 6, []byte{3}, true, true)
 			case "setworldspawn":
 				// Parser 8 = minecraft:block_pos, parser 27 = minecraft:angle.
-				pos := argument(root, "pos", 8, nil, false, false)
+				pos := argument(root, "pos", 8, nil, true, false)
 				argument(pos, "angle", 27, nil, true, false)
 			case "spawnpoint":
 				targets := argument(root, "targets", 6, []byte{3}, false, true)

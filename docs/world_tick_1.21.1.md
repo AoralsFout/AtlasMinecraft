@@ -30,7 +30,23 @@ Java 1.21.1 专用服务端对照使用无玩家平坦世界，种子 1234，`sp
 
 Atlas 的服务器入口测试另检查玩家离开后的水流计时：5 刻的计划更新先走 2 刻，保存重启后再走 3 刻流出。移除最后一张票据后，新开的出水口保持干燥，空闲卸载可释放整个 5×5 邻域。[服务器回归测试](../internal/server/forceload_test.go)
 
-下一个可独立验收的阶段是主世界出生区块票据。用 `spawnChunkRadius=0`、默认值 2 和迁移出生点三个原版场景核对中心、外圈及无玩家时的阶段资格。随后接入传送门临时票据及到期移除，再处理三维度共享时间与 `doDaylightCycle`。
+## 主世界出生区块
+
+主世界从 `level.dat` 读取出生点与 `GameRules.spawnChunkRadius`。省略规则时取 2，设为 0 时撤销出生票据。`/setworldspawn` 跨区块移动出生点或 `/gamerule spawnChunkRadius` 改变半径后，重算受影响的加载范围。每个区块取出生、玩家和强加载票据中的最强等级。离线打开存档不会单独触发出生区块生成，服务器首次世界刻会从存档恢复这张票据。[模拟入口](../internal/world/simulation.go) · [半径与存档](../internal/world/spawn_chunks.go)
+
+在 Java 1.21.1 无玩家平坦世界中，依次执行下表命令。每组稳定后用 `/perf start` 和 `/perf stop` 取出 `server/levels/minecraft/overworld/chunks.csv`，按坐标核对所有达到 FULL 或更高级别的区块。三组分别有 49、74、25 个区块符合条件。
+
+| 操作 | 实体刻区块 | 仅方块刻区块 | 仅加载区块 |
+| --- | ---: | ---: | ---: |
+| 保留默认半径 2，执行 `/setworldspawn -1599 64 1601` | 9 | 16 | 24 |
+| 在原地 `/forceload add -1599 1601`，再执行 `/setworldspawn 1601 64 1601` | 10 | 24 | 40 |
+| 执行 `/gamerule spawnChunkRadius 0`，保留旧址的强加载 | 1 | 8 | 16 |
+
+在默认半径的另一轮原版实验中，冻结世界，在出生区块以及沿 X 方向相距 2、3 个区块的位置放置悬空沙。在露天灌溉耕地上种下年龄 0 的小麦，将 `randomTickSpeed` 设为 4096。步进 20 刻后，中心与距离 2 处的沙已离开原位，距离 3 处的沙仍悬空，小麦年龄仍为 0。
+
+原版 `ServerLevel.tick` 在维度连续没有玩家和强加载票据时，仅在前 300 刻进入实体阶段。Atlas 以落沙验证第 300 刻实体仍移动，第 301 刻起暂停。此时新放置的悬空沙仍能按计划刻转为实体。添加强加载票据会恢复实体阶段。出生票据本身也不会给区块提供随机刻所需的玩家距离条件。[区块与实体边界测试](../internal/world/spawn_chunks_test.go) · [命令与重启测试](../internal/server/world_tick_test.go) · [Mojang 出生半径说明](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-5)
+
+下一阶段接入传送门临时票据。先测量目的地区块在进入、重复进入和到期时的等级，再核对它与出生及强加载票据重叠时的释放行为。之后接入三维度共享时间与 `doDaylightCycle`。
 
 ## 基线中复现的两个差异
 

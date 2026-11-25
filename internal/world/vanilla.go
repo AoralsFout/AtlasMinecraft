@@ -8,6 +8,7 @@ import (
 	"atlas/internal/worldgen"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sync"
 )
@@ -235,67 +236,50 @@ func (v *VanillaSave) spawnUninitialized() bool {
 	return ok && ready == 0
 }
 
-// initializeSpawn stores the scanned initial spawn (with vanilla's zero
-// facing angle) and completes the AtlasWorldgen SpawnReady marker. Unlike
-// setSpawn it always writes, even when the position matches the placeholder.
-func (v *VanillaSave) initializeSpawn(x, y, z int32) error {
-	if v.dimension.name != "minecraft:overworld" {
-		return errors.New("shared world spawn is owned by the overworld")
-	}
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.spawnX, v.spawnY, v.spawnZ, v.spawnAngle = x, y, z, 0
-	if err := v.writeSpawnLocked(); err != nil {
+// commitLevelLocked writes a replacement Data compound before publishing it.
+// Callers clone any nested compound they edit and hold v.mu throughout.
+func (v *VanillaSave) commitLevelLocked(level nbt.Object) error {
+	root, _ := v.root.Object()
+	next := maps.Clone(root)
+	next["Data"] = nbt.Tag{Type: nbt.Compound, Value: level}
+	tag := nbt.Tag{Type: nbt.Compound, Value: next}
+	if err := writeGzipNBTAtomic(filepath.Join(v.dir, "level.dat"), v.name, tag); err != nil {
 		return err
 	}
-	return v.markSpawnReadyLocked()
+	v.root = tag
+	return nil
 }
 
-func (v *VanillaSave) writeSpawnLocked() error {
-	if v.dimension.name != "minecraft:overworld" {
-		return errors.New("shared world spawn is owned by the overworld")
-	}
-	levelRoot, _ := v.root.Object()
-	level, _ := levelRoot.Object("Data")
-	level["SpawnX"] = nbt.Tag{Type: nbt.Int, Value: v.spawnX}
-	level["SpawnY"] = nbt.Tag{Type: nbt.Int, Value: v.spawnY}
-	level["SpawnZ"] = nbt.Tag{Type: nbt.Int, Value: v.spawnZ}
-	level["SpawnAngle"] = nbt.Tag{Type: nbt.Float, Value: v.spawnAngle}
-	return writeGzipNBTAtomic(filepath.Join(v.dir, "level.dat"), v.name, v.root)
-}
-
-func (v *VanillaSave) markSpawnReadyLocked() error {
-	levelRoot, _ := v.root.Object()
-	level, _ := levelRoot.Object("Data")
-	marker, ok := level.Object("AtlasWorldgen")
-	if !ok {
-		return nil
-	}
-	if ready, _ := marker.Number("SpawnReady"); ready == 1 {
-		return nil
-	}
-	marker["SpawnReady"] = nbt.Tag{Type: nbt.Byte, Value: int8(1)}
-	return writeGzipNBTAtomic(filepath.Join(v.dir, "level.dat"), v.name, v.root)
-}
-
-// setSpawn stores an explicit shared world spawn in memory and level.dat,
-// reporting whether the stored point changed. An explicit spawn also completes
-// the AtlasWorldgen SpawnReady marker so the initial spawn scan can no longer
-// override the chosen position.
+// Commit the point and the completed initial scan in one level.dat write.
 func (v *VanillaSave) setSpawn(x, y, z int32, angle float32) (bool, error) {
 	if v.dimension.name != "minecraft:overworld" {
 		return false, errors.New("shared world spawn is owned by the overworld")
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if x == v.spawnX && y == v.spawnY && z == v.spawnZ && angle == v.spawnAngle {
-		return false, v.markSpawnReadyLocked()
+	root, _ := v.root.Object()
+	old, _ := root.Object("Data")
+	marker, marked := old.Object("AtlasWorldgen")
+	ready, _ := marker.Number("SpawnReady")
+	changed := x != v.spawnX || y != v.spawnY || z != v.spawnZ || angle != v.spawnAngle
+	if !changed && (!marked || ready == 1) {
+		return false, nil
+	}
+	level := maps.Clone(old)
+	level["SpawnX"] = nbt.Tag{Type: nbt.Int, Value: x}
+	level["SpawnY"] = nbt.Tag{Type: nbt.Int, Value: y}
+	level["SpawnZ"] = nbt.Tag{Type: nbt.Int, Value: z}
+	level["SpawnAngle"] = nbt.Tag{Type: nbt.Float, Value: angle}
+	if marked && ready != 1 {
+		marker = maps.Clone(marker)
+		marker["SpawnReady"] = nbt.Tag{Type: nbt.Byte, Value: int8(1)}
+		level["AtlasWorldgen"] = nbt.Tag{Type: nbt.Compound, Value: marker}
+	}
+	if err := v.commitLevelLocked(level); err != nil {
+		return false, err
 	}
 	v.spawnX, v.spawnY, v.spawnZ, v.spawnAngle = x, y, z, angle
-	if err := v.writeSpawnLocked(); err != nil {
-		return true, err
-	}
-	return true, v.markSpawnReadyLocked()
+	return changed, nil
 }
 
 func (v *VanillaSave) loadChunk(cx, cz int32) (*Chunk, error) {

@@ -53,6 +53,7 @@ func TestForceLoadWorldClockAndRestart(t *testing.T) {
 			}
 		}
 	}
+	command("gamerule spawnChunkRadius 0", "now set to: 0")
 	command("forceload add -1600 1600", "Marked 1")
 	tick(1)
 	if got := s.executeCommand(p, "forceload remove all"); !strings.Contains(got, "permission") {

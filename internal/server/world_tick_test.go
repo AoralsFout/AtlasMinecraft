@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWorldClockAdvancesAllDimensionsAndCommandsChangeOnlyDayTime(t *testing.T) {
@@ -82,6 +83,9 @@ func TestWorldClockContinuesAfterDimensionFailure(t *testing.T) {
 
 func TestPlayerSimulationFollowsMovementDimensionAndDisconnect(t *testing.T) {
 	s, first, _ := dimensionTestServer(t)
+	if err := s.World.SetSpawnChunkRadius(0); err != nil {
+		t.Fatal(err)
+	}
 	s.Cfg.SimulationDistance = 2
 	second := player.New("Second", [16]byte{2}, 2, nil)
 	second.SetPos(16.5, -60, .5, 0, 0, true)
@@ -147,4 +151,68 @@ func TestPlayerSimulationFollowsMovementDimensionAndDisconnect(t *testing.T) {
 	}
 	tick(1)
 	check(10, world.StateAir)
+}
+
+func TestSpawnChunkCommandsAndRestart(t *testing.T) {
+	s, p, dir := dimensionTestServer(t)
+	s.Hub.Leave(p)
+	cmd := func(line, want string) {
+		t.Helper()
+		if got := s.executeCommand(nil, line); !strings.Contains(got, want) {
+			t.Fatalf("%s: %s, want %s", line, got, want)
+		}
+	}
+	cmd("gamerule spawnChunkRadius", "currently set to: 2")
+	cmd("execute in minecraft:the_nether run gamerule spawnChunkRadius 0", "now set to: 0")
+	s.Cfg.Ops = nil
+	if got := s.executeCommand(p, "gamerule spawnChunkRadius 2"); !strings.Contains(got, "permission") {
+		t.Fatal(got)
+	}
+	for _, invalid := range []string{"-1", "33", "1.5"} {
+		cmd("gamerule spawnChunkRadius "+invalid, "between 0 and 32")
+	}
+	cmd("setworldspawn -1599 64 1601", "Set the world spawn")
+	if err := s.TickWorlds(); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range s.Worlds() {
+		if n := w.Stats().LoadedChunks; n != 0 {
+			t.Fatalf("%s loaded %d with spawn disabled", w.DimensionName(), n)
+		}
+	}
+	cmd("minecraft:gamerule spawnChunkRadius 1", "now set to: 1")
+	if err := s.World.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w, err := world.Open(nil, 2, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if w.SpawnChunkRadius() != 1 {
+		t.Fatal("spawn radius lost on restart")
+	}
+	if err := w.TickPlayers(nil, 1); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for w.Stats().LoadedChunks != 25 {
+		if time.Now().After(deadline) {
+			t.Fatalf("restored %d of 25 chunks", w.Stats().LoadedChunks)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := w.ReadLoadedBlocks([]world.BlockPosition{{X: -1599, Y: 64, Z: 1601}}); err != nil {
+		t.Fatal("saved spawn was not loaded", err)
+	}
+	if err := w.SetSpawnChunkRadius(0); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := w.UnloadIdle(0); n != 25 || err != nil {
+		t.Fatalf("released %d of 25 chunks, err %v", n, err)
+	}
 }
