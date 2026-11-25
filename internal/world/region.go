@@ -114,9 +114,10 @@ type setBlockMsg struct {
 	expected      *uint32
 	upper         *uint32
 	upperExpected *uint32
-	raw           bool // level mutation: callbacks run outside the region actor
-	deferSave     bool // derived runtime state is persisted by the next chunk save
-	loadedOnly    bool // return a miss so the caller can prepare terrain outside its tick lock
+	buttonRelease string // schedule with the powered state in the same chunk save
+	raw           bool   // level mutation: callbacks run outside the region actor
+	deferSave     bool   // derived runtime state is persisted by the next chunk save
+	loadedOnly    bool   // return a miss so the caller can prepare terrain outside its tick lock
 	flags         int32
 	changed       chan []BlockPosition
 	result        chan error

@@ -36,6 +36,51 @@ func IsDoor(name string) bool {
 	return strings.HasSuffix(name, "_door") && !strings.HasSuffix(name, "_trapdoor")
 }
 
+// PressStoneButton checks the interaction snapshot and persists the powered
+// state together with its release. Repeated clicks do not renew the pulse.
+func (w *World) PressStoneButton(p BlockPosition, expected uint32) error {
+	state, err := BlockStateByID(expected)
+	if err != nil || !worldgen.IsStoneButton(state.Name) {
+		return errors.New("expected a stone button")
+	}
+	if state.Properties["powered"] == "true" {
+		return nil
+	}
+	state.Properties["powered"] = "true"
+	pressed, err := BlockStateID(state.Name, state.Properties)
+	if err != nil {
+		return err
+	}
+	w.blockUpdateMu.Lock()
+	defer w.blockUpdateMu.Unlock()
+	changed, err := w.editBlock(setBlockMsg{x: p.X, y: p.Y, z: p.Z, expected: &expected, state: pressed, loadedOnly: true, buttonRelease: state.Name})
+	if err != nil {
+		return err
+	}
+	if err := w.updateBlockNeighbors(changed); err != nil {
+		return err
+	}
+	r := &fluidRuntime{world: w, settings: w.fluidSettings()}
+	return r.NotifyButtonNeighbors(worldgen.FeaturePosition(p), worldgen.SurfaceBlockState{Name: state.Name, Properties: state.Properties})
+}
+
+// ButtonBlock.updateNeighbours notifies around both the button and its support.
+func (r *fluidRuntime) NotifyButtonNeighbors(p worldgen.FeaturePosition, state worldgen.SurfaceBlockState) error {
+	face := 0
+	switch state.Properties["face"] {
+	case "ceiling":
+		face = 1
+	case "wall":
+		face = oppositeFace(FacingFace(state.Properties["facing"]))
+	}
+	for _, center := range []worldgen.FeaturePosition{p, fluidAdjacent(p, face)} {
+		if err := r.enqueue(&fluidNeighborUpdate{position: center, multi: true, loadedOnly: true}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (w *World) editBlock(msg setBlockMsg) ([]BlockPosition, error) {
 	msg.result = make(chan error, 1)
 	msg.changed = make(chan []BlockPosition, 1)

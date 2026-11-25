@@ -28,11 +28,20 @@ func (w *World) tickLocked(chunks TickChunks, live bool) error {
 		return ErrWorldClosed
 	default:
 	}
-	w.advanceTimeLocked(1)
 	var failure error
+	var runtime *fluidRuntime
 	if chunks.Blocks != nil {
-		if err := w.tickScheduledLocked(chunks.Blocks, true, live); err != nil {
-			failure = fmt.Errorf("scheduled updates: %w", err)
+		// A saved remaining delay is relative to activation at this boundary.
+		// Advancing first would add a game tick after every unload/reload.
+		runtime, failure = w.prepareScheduledLocked(chunks.Blocks, live)
+	}
+	w.advanceTimeLocked(1)
+	if chunks.Blocks != nil {
+		if runtime != nil && (failure == nil || live) {
+			failure = errors.Join(failure, runtime.tickScheduledQueues(chunks.Blocks, true, live))
+		}
+		if failure != nil {
+			failure = fmt.Errorf("scheduled updates: %w", failure)
 			if !live {
 				return failure
 			}

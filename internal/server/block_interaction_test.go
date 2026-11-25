@@ -96,6 +96,48 @@ func TestDigLogUpdatesLeavesAcrossChunkBoundary(t *testing.T) {
 	}
 }
 
+func TestStoneButtonsReleaseOnTwentiethGameTick(t *testing.T) {
+	s, p := interactionServer(t)
+	s.Cfg.SimulationDistance = 2
+	p.SetPlayReady(true)
+	p.SetHotbarSlot(36, world.StateAir)
+	for i, name := range []string{"stone_button", "polished_blackstone_button", "stone_button"} {
+		x := int32(i + 1)
+		id := stateID(t, name, map[string]string{"face": "floor"})
+		if err := s.World.SetBlock(x, -60, 2, id); err != nil {
+			t.Fatal(err)
+		}
+		s.handlePlace(p, placePayload(x, -60, 2, 1, x, .5))
+		if blockAt(t, s.World, x, -60, 2).Properties["powered"] != "true" {
+			t.Fatalf("%s was not pressed", name)
+		}
+	}
+	// A replaced button leaves a stale request, which must not modify the replacement.
+	if err := s.World.SetBlock(3, -60, 2, world.StateStone); err != nil {
+		t.Fatal(err)
+	}
+	for range 19 {
+		if err := s.TickWorlds(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, x := range []int32{1, 2} {
+		if blockAt(t, s.World, x, -60, 2).Properties["powered"] != "true" {
+			t.Fatal("button released early", x)
+		}
+		s.handlePlace(p, placePayload(x, -60, 2, 1, x+10, .5))
+	}
+	if err := s.TickWorlds(); err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range []int32{1, 2} {
+		if blockAt(t, s.World, x, -60, 2).Properties["powered"] != "false" {
+			t.Fatal("button stayed pressed", x)
+		}
+	}
+	assertInteractionState(t, s.World, 3, -60, 2, world.StateStone)
+}
+
 func TestDoorUpperHalfCannotIntersectAnotherPlayer(t *testing.T) {
 	s, p := interactionServer(t)
 	p.SetHotbarSlot(36, stateID(t, "oak_door", nil))

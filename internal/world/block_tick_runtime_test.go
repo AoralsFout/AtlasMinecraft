@@ -272,3 +272,65 @@ func TestLogRemovalSchedulesLeavesInShapeOrder(t *testing.T) {
 		t.Fatalf("leaf tick order = %v, want %v", got, want)
 	}
 }
+
+func TestPressedButtonKeepsRemainingTicksAcrossRestart(t *testing.T) {
+	w, dir := mechanicsWorld(t)
+	pos := BlockPosition{8, -60, 8}
+	id, err := BlockStateID("minecraft:stone_button", map[string]string{"face": "floor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetBlock(pos.X, pos.Y, pos.Z, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.PressStoneButton(pos, id); err != nil {
+		t.Fatal(err)
+	}
+	saved := diskBlockTicks(t, dir, 0, 0)
+	if len(saved) != 1 || saved[0].Type != "minecraft:stone_button" || saved[0].Delay != 20 {
+		t.Fatalf("button press saved without its release: %+v", saved)
+	}
+	eligible := TickChunks{Blocks: func(x, z int32) bool { return x == 0 && z == 0 }}
+	for range 7 {
+		if err := w.Tick(eligible); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	saved = diskBlockTicks(t, dir, 0, 0)
+	if len(saved) != 1 || saved[0].Delay != 13 {
+		t.Fatalf("remaining button ticks: %+v", saved)
+	}
+	reopened, err := Open(noViewers{}, 1, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := reopened.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	for x := int32(-1); x <= 1; x++ {
+		for z := int32(-1); z <= 1; z++ {
+			if _, err := reopened.LoadChunk(x, z); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for range 4 {
+		if err := reopened.Tick(TickChunks{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 1; i <= 13; i++ {
+		if err := reopened.Tick(eligible); err != nil {
+			t.Fatal(err)
+		}
+		got, err := reopened.BlockAt(pos.X, pos.Y, pos.Z)
+		if err != nil || (got == id) != (i == 13) {
+			t.Fatalf("resumed tick %d, state %d, error %v", i, got, err)
+		}
+	}
+}

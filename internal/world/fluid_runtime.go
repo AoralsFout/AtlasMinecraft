@@ -34,17 +34,21 @@ func (w *World) tickScheduled(eligible func(int32, int32) bool, blocks bool) err
 	}
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
-	return w.tickScheduledLocked(eligible, blocks, false)
+	r, err := w.prepareScheduledLocked(eligible, false)
+	if err != nil {
+		return err
+	}
+	return r.tickScheduledQueues(eligible, blocks, false)
 }
 
-func (w *World) tickScheduledLocked(eligible func(int32, int32) bool, blocks, live bool) error {
+func (w *World) prepareScheduledLocked(eligible func(int32, int32) bool, live bool) (*fluidRuntime, error) {
 	select {
 	case <-w.done:
-		return ErrWorldClosed
+		return nil, ErrWorldClosed
 	default:
 	}
 	if err := w.ensureTickRandom(); err != nil {
-		return err
+		return nil, err
 	}
 	r := &fluidRuntime{world: w, settings: w.fluidSettings(), deferLeafSaves: live}
 	o := w.scheduledTicks
@@ -56,11 +60,18 @@ func (w *World) tickScheduledLocked(eligible func(int32, int32) bool, blocks, li
 	} {
 		if err := prepare(); err != nil {
 			if !live {
-				return err
+				return r, err
 			}
 			failures = append(failures, err)
 		}
 	}
+	return r, errors.Join(failures...)
+}
+
+func (r *fluidRuntime) tickScheduledQueues(eligible func(int32, int32) bool, blocks, live bool) error {
+	w := r.world
+	o := w.scheduledTicks
+	var failures []error
 	if blocks {
 		if err := tickOwnedQueue(o, o.blocks, &o.currentBlock, "block", 65536, eligible, func(t tickqueue.Scheduled[string]) error {
 			return worldgen.TickScheduledBlock(r, worldgen.FeaturePosition{X: t.Position.X, Y: t.Position.Y, Z: t.Position.Z}, t.Type)
@@ -151,6 +162,7 @@ type fluidNeighborUpdate struct {
 	face, next   int
 	flags, limit int32
 	multi        bool
+	loadedOnly   bool
 }
 
 var fluidNotifyOrder = [6]int{4, 5, 0, 1, 2, 3}
@@ -349,10 +361,17 @@ func (r *fluidRuntime) runNeighbor(u *fluidNeighborUpdate) (bool, error) {
 		p := fluidAdjacent(u.position, fluidNotifyOrder[u.next])
 		u.next++
 		s, err := r.BlockAt(p)
+		if u.loadedOnly && errors.Is(err, ErrChunkNotLoaded) {
+			return u.next < 6, nil
+		}
 		if err != nil {
 			return false, err
 		}
-		return u.next < 6, worldgen.NotifyLiquidBlock(r, p, s, r.settings)
+		err = worldgen.NotifyLiquidBlock(r, p, s, r.settings)
+		if u.loadedOnly && errors.Is(err, ErrChunkNotLoaded) {
+			err = r.ScheduleFluidUpdate(p)
+		}
+		return u.next < 6, err
 	}
 	if !r.InWorld(u.position) {
 		return false, nil

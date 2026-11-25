@@ -174,9 +174,18 @@ func (r *Region) applyColumnEdit(ch *Chunk, msg setBlockMsg) error {
 		return nil
 	}
 	ch.lightStale = true
+	if msg.buttonRelease != "" {
+		if err := r.world.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: msg.x, Y: msg.y, Z: msg.z}, msg.buttonRelease, 20, 0); err != nil {
+			rollback()
+			return err
+		}
+	}
 	if !msg.deferSave {
 		if err := r.world.store.vanilla.persistChunk(ch); err != nil {
-			rollback()
+			// Keep the press and its release paired for the next save attempt.
+			if msg.buttonRelease == "" {
+				rollback()
+			}
 			return fmt.Errorf("block update save failed: %w", err)
 		}
 	}

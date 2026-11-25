@@ -3,6 +3,7 @@ package server
 import (
 	"atlas/internal/player"
 	"atlas/internal/world"
+	"atlas/internal/worldgen"
 	"strings"
 	"time"
 )
@@ -70,6 +71,11 @@ func (s *Server) useBlock(p *player.Player, pos world.BlockPosition, id uint32, 
 			s.Dbg("openable block interaction rejected: %v", err)
 		}
 		return true
+	case worldgen.IsStoneButton(state.Name):
+		if err := interactionWorld.PressStoneButton(pos, id); err != nil {
+			s.Dbg("stone button interaction rejected: %v", err)
+		}
+		return true
 	case state.Name == "minecraft:lever" || strings.HasSuffix(state.Name, "_button"):
 		previous := properties["powered"] == "true"
 		if strings.HasSuffix(state.Name, "_button") && previous {
@@ -88,12 +94,8 @@ func (s *Server) useBlock(p *player.Player, pos world.BlockPosition, id uint32, 
 			return true
 		}
 		if strings.HasSuffix(state.Name, "_button") {
-			delay := time.Second
-			if state.Name != "minecraft:stone_button" && state.Name != "minecraft:polished_blackstone_button" {
-				delay = 1500 * time.Millisecond
-			}
 			go func() {
-				timer := time.NewTimer(delay)
+				timer := time.NewTimer(1500 * time.Millisecond)
 				defer timer.Stop()
 				<-timer.C
 				properties["powered"] = "false"

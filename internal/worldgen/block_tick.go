@@ -47,6 +47,21 @@ func TickScheduledBlock(world ScheduledBlockWorld, p FeaturePosition, name strin
 	if state.Name != name {
 		return nil
 	}
+	if IsStoneButton(name) {
+		if state.Properties["powered"] != "true" {
+			return nil
+		}
+		buttonWorld, ok := world.(interface {
+			NotifyButtonNeighbors(FeaturePosition, SurfaceBlockState) error
+		})
+		if !ok {
+			return fmt.Errorf("stone button release requires neighbor notifications")
+		}
+		if err := world.SetFluidBlock(p, stateWithProperty(state, "powered", "false"), 3); err != nil {
+			return err
+		}
+		return buttonWorld.NotifyButtonNeighbors(p, state)
+	}
 	switch blockTickHandlers[name] {
 	case "dtb":
 		return nil // BlockBehaviour.tick is empty.
@@ -105,6 +120,10 @@ func scheduledLeafDistance(state SurfaceBlockState) int {
 }
 
 func IsLeafBlock(name string) bool { return blockTickHandlers[name] == "dki" }
+
+func IsStoneButton(name string) bool {
+	return name == "minecraft:stone_button" || name == "minecraft:polished_blackstone_button"
+}
 
 func UpdateLeafNeighbor(world FeatureBlockWorld, p FeaturePosition, state, neighbor SurfaceBlockState) error {
 	if state.Properties["waterlogged"] == "true" {
