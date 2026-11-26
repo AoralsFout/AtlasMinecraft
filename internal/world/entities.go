@@ -28,6 +28,7 @@ type WorldEntity struct {
 	trapRiderID int32        // protocol ID of the newly attached skeleton, before saving/reloading
 	trapTicks   int32        // entity ticks since loading, independent of saved SkeletonTrapTime
 	fuse        *creeperFuse // immutable runtime snapshot; swell progress is not saved
+	tntOwner    int32        // indirect damage source; vanilla does not save primed TNT ownership
 	UUID        [16]byte
 	Type        string
 	Position    [3]float64

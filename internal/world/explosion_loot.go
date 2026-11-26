@@ -247,7 +247,7 @@ func (r *fluidRuntime) blastLoot(p worldgen.FeaturePosition, state worldgen.Surf
 		name = strings.TrimPrefix(key, "blocks/")
 	}
 	table, ok := assets.Tables[name]
-	if !ok || len(table.Pools) == 0 || state.Name == "minecraft:tnt" {
+	if !ok || len(table.Pools) == 0 {
 		return nil, nil
 	}
 	c := blastLootContext{r: r, pos: p, state: state, decay: decay}

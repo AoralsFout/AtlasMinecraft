@@ -45,6 +45,116 @@ public final class BlastProbe {
         }
     }
 
+    private static List<Double> position(bsr e) {
+        return List.of(e.dt(), e.dv(), e.dz());
+    }
+
+    private static List<Double> vector(exc v) {
+        return List.of(v.c, v.d, v.e);
+    }
+
+    private static Map<String,String> tntPackets(aqu level) {
+        var tnt = new cji(bsx.bc, level);
+        tnt.e(77);
+        tnt.a_(new UUID(1, 2));
+        tnt.a_(8.5, 200, 8.5);
+        tnt.n(-0.01, (double)0.2f, 0.015);
+        tnt.b(18);
+        var tracker = new aqt(level, tnt, 10, true, ignored -> {});
+        var bytes = Unpooled.buffer();
+        try {
+            var buf = new wk(bytes, level.H_());
+            abv.a.encode(buf, (abv)tnt.a(tracker));
+            String spawn = ByteBufUtil.hexDump(bytes);
+            bytes.clear();
+            aez.a.encode(buf, new aez(77, tnt.ar().c()));
+            return Map.of("spawn",spawn,"metadata",ByteBufUtil.hexDump(bytes));
+        } finally {
+            bytes.release();
+        }
+    }
+
+    private static void captureTntChains(MinecraftServer server, aqu level, Gson gson) throws Exception {
+        var tickListField = aqu.class.getDeclaredField("M");
+        tickListField.setAccessible(true);
+        var tickList = (dxm)tickListField.get(level);
+        var tickEntity = aqu.class.getDeclaredMethod("a", brc.class, bnf.class, bsr.class);
+        tickEntity.setAccessible(true);
+        var tickRate = level.s();
+        var profiler = level.ag();
+        var fuseField = cjp.class.getDeclaredField("cd");
+        fuseField.setAccessible(true);
+        var itemHealth = cjh.class.getDeclaredField("k");
+        itemHealth.setAccessible(true);
+        level.ab().a(dcs.c).a(true, server);
+        level.ab().a(dcs.R).a(false, server);
+        level.ab().a(dcs.h).a(true, server);
+        var scenarios = new ArrayList<Object>();
+        for (long seed : new long[]{17, 9231, 2026}) {
+            boolean platform = seed != 17;
+            boolean cascade = seed == 2026;
+            boolean decay = seed != 9231;
+            level.ab().a(dcs.S).a(decay, server);
+            var blocks = new ArrayList<int[]>();
+            for (int x=4; x<=14; x++) for (int z=5; z<=11; z++) {
+                if (!platform || x <= 8) blocks.add(new int[]{x,199,z,dfy.i(dga.F.o())});
+            }
+            blocks.add(new int[]{8,200,8,dfy.i(dga.ck.o())});
+            blocks.add(new int[]{9,200,8,dfy.i(lt.e.a(akr.b("dirt")).o())});
+            if (cascade) blocks.add(new int[]{12,200,8,dfy.i(dga.ck.o())});
+            for (int[] p : blocks) level.a(new jd(p[0],p[1],p[2]),dfy.a(p[3]),2);
+            var creeper = bsx.x.a(level);
+            creeper.e(7.5,200,8.5);
+            creeper.f(true);
+            creeper.u(true);
+            creeper.gk();
+            fuseField.setInt(creeper,1);
+            if (!level.b(creeper)) throw new AssertionError("creeper was not added");
+            level.z.b(seed);
+            var ticks = new ArrayList<Object>();
+            var firstDrops = new ArrayList<cjh>();
+            int explosions = 0;
+            for (int tick=0; tick<=80; tick++) {
+                BlastProbeAgent.lastExplosion = null;
+                // Run the ServerLevel.tick entity phase with its original callback and gates.
+                tickList.a(entity -> {
+                    try {
+                        tickEntity.invoke(level,tickRate,profiler,entity);
+                    } catch (ReflectiveOperationException error) {
+                        throw new IllegalStateException("entity tick failed",error);
+                    }
+                });
+                var row = new TreeMap<String,Object>();
+                var blast = (dco)BlastProbeAgent.lastExplosion;
+                if (blast != null) {
+                    explosions++;
+                    row.put("explosion", Map.of("power",blast.a(),"center",vector(blast.b()),"interaction",blast.j().ordinal()));
+                }
+                var tnt = new ArrayList<Object>();
+                for (bsr entity : level.A()) {
+                    if (entity instanceof cji primed)
+                        tnt.add(Map.of("fuse",primed.t(),"pos",position(primed),"motion",vector(primed.dr())));
+                    if (tick == 0 && entity instanceof cjh item) firstDrops.add(item);
+                }
+                var items = new ArrayList<Object>();
+                for (var item : firstDrops) items.add(Map.of("alive",!item.dJ(),"health",itemHealth.getInt(item),
+                        "pos",position(item),"motion",vector(item.dr())));
+                row.put("tnt",tnt);
+                row.put("items",items);
+                row.put("tick",tick);
+                ticks.add(row);
+                if (explosions >= (cascade ? 3 : 2) && tnt.isEmpty()) break;
+            }
+            if (firstDrops.size() != 1 || explosions < 2) throw new AssertionError("incomplete TNT scenario for seed "+seed);
+            scenarios.add(Map.of("seed",seed,"decay",decay,"blocks",blocks,"ticks",ticks));
+            var remaining = new ArrayList<bsr>();
+            for (bsr entity : level.A()) if (entity instanceof cji || entity instanceof cjh) remaining.add(entity);
+            remaining.forEach(bsr::aq);
+            for (int[] p : blocks) level.a(new jd(p[0],p[1],p[2]),dga.a.o(),2);
+        }
+        Files.writeString(Path.of("tnt-chain.json"),gson.toJson(Map.of("scenarios",scenarios,"packets",tntPackets(level))));
+    }
+
     public static void capture(Object instance) throws Exception {
         MinecraftServer server = (MinecraftServer)instance;
         aqu level = server.I();
@@ -127,6 +237,7 @@ public final class BlastProbe {
         }
         Files.writeString(Path.of("blast.json"),gson.toJson(Map.of("initial",initial,"cases",rows,
                 "containers",containers,"itemPackets",itemPackets(level))));
+        captureTntChains(server,level,gson);
         server.a(false);
     }
 }

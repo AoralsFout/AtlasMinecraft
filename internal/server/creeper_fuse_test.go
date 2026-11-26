@@ -75,7 +75,7 @@ func TestCreeperBlocksExplosionPacket(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		event := world.CreeperFuseEvent{Power: row.Power, BlockInteraction: row.Interaction}
+		event := world.ExplosionEvent{Center: pos, Power: row.Power, BlockInteraction: row.Interaction}
 		_, err = r.F32()
 		if err != nil {
 			t.Fatal(err)
@@ -95,7 +95,7 @@ func TestCreeperBlocksExplosionPacket(t *testing.T) {
 			}
 			event.Affected = append(event.Affected, worldgen.FeaturePosition{X: xyz[0], Y: xyz[1], Z: xyz[2]})
 		}
-		if !bytes.Equal(creeperExplosionPacket(pos, &event, 1), native) {
+		if !bytes.Equal(explosionPacket(&event, 1), native) {
 			t.Fatalf("native packet mismatch for power %.0f interaction %d", row.Power, row.Interaction)
 		}
 	}

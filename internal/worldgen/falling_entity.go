@@ -240,6 +240,11 @@ func fallingCollision(world ScheduledBlockWorld, box blockrules.Box, delta [3]fl
 			}
 		}
 	}
+	return ClipEntityMovement(box, delta, obstacles), nil
+}
+
+// ClipEntityMovement clips Y first, then the larger horizontal component.
+func ClipEntityMovement(box blockrules.Box, delta [3]float64, obstacles []blockrules.Box) [3]float64 {
 	order := [3]int{1, 0, 2}
 	if math.Abs(delta[0]) < math.Abs(delta[2]) {
 		order = [3]int{1, 2, 0}
@@ -260,5 +265,5 @@ func fallingCollision(world ScheduledBlockWorld, box blockrules.Box, delta [3]fl
 		box[axis] += delta[axis]
 		box[axis+3] += delta[axis]
 	}
-	return delta, nil
+	return delta
 }

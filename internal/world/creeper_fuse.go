@@ -13,10 +13,7 @@ import (
 // Power is the argument to Level.explode and can be zero for a custom creeper.
 type CreeperFuseEvent struct {
 	DirectionChanged, Primed, Exploded bool
-	Power                              float32
-	BlockInteraction                   int32
-	Affected                           []worldgen.FeaturePosition
-	PlayerImpulse                      map[int32][3]float32
+	ExplosionEvent
 }
 
 type creeperFuse struct {
@@ -222,42 +219,7 @@ func clearThroughBoxes(from, to [3]float64, boxes []blockrules.Box) bool {
 	return true
 }
 
-func (w *World) tickCreepers(eligible func(int32, int32) bool, publish func(LivingDamageChange)) error {
-	o := w.scheduledTicks
-	o.mu.Lock()
-	holders := slices.Clone(o.creeperChunks)
-	o.mu.Unlock()
-	if len(holders) == 0 {
-		return nil
-	}
-	peaceful := w.baseDifficulty() == 0
-	for _, h := range holders {
-		if !eligible(h.x, h.z) {
-			continue
-		}
-		// Sight can cross region boundaries. Read terrain outside the owning actor.
-		var mobs []WorldEntity
-		if err := w.fallingEntityOperation(h.x, h.z, func(_ *Region, ch *Chunk) error {
-			for _, e := range ch.entities {
-				hp, ok := e.Data["Health"].Value.(float32)
-				if e.Type == "minecraft:creeper" && (!ok || hp > 0) {
-					mobs = append(mobs, e)
-				}
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
-		for _, mob := range mobs {
-			if err := w.tickCreeper(h, mob, peaceful, publish); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (w *World) tickCreeper(h *chunkScheduledTicks, mob WorldEntity, peaceful bool, publish func(LivingDamageChange)) error {
+func (w *World) tickCreeper(key chunkKey, mob WorldEntity, peaceful bool, publish func(LivingDamageChange)) error {
 	var state creeperFuse
 	if mob.fuse == nil {
 		state = newCreeperFuse(rand.Int64())
@@ -277,7 +239,7 @@ func (w *World) tickCreeper(h *chunkScheduledTicks, mob WorldEntity, peaceful bo
 		return err
 	}
 	var change LivingDamageChange
-	err = w.fallingEntityOperation(h.x, h.z, func(r *Region, ch *Chunk) error {
+	err = w.fallingEntityOperation(key.x, key.z, func(r *Region, ch *Chunk) error {
 		for i := range ch.entities {
 			e := &ch.entities[i]
 			if e.UUID != mob.UUID {
@@ -329,6 +291,7 @@ func (w *World) tickCreeper(h *chunkScheduledTicks, mob WorldEntity, peaceful bo
 		change.SoundSeed = w.nextSoundSeed()
 	}
 	if event.Exploded {
+		change.Explosion = &event.ExplosionEvent
 		err = w.creeperBlast(change, publish)
 	}
 	if publish != nil {

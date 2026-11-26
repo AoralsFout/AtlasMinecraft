@@ -18,17 +18,17 @@ import (
 // actor requests run without it. World.blockUpdateMu serializes a complete
 // tick pass against edits, saves and unloads. Actors never acquire that lock.
 type scheduledTickOwner struct {
-	mu            sync.Mutex
-	level         *tickqueue.Level[worldgen.FluidType]
-	blocks        *tickqueue.Level[string]
-	chunks        map[uint64]*chunkScheduledTicks
-	loadOrder     []*chunkScheduledTicks
-	trapChunks    []*chunkScheduledTicks
-	creeperChunks []*chunkScheduledTicks
-	hurtChunks    map[*chunkScheduledTicks]struct{}
-	now, order    int64
-	current       *tickqueue.Scheduled[worldgen.FluidType]
-	currentBlock  *tickqueue.Scheduled[string]
+	mu              sync.Mutex
+	level           *tickqueue.Level[worldgen.FluidType]
+	blocks          *tickqueue.Level[string]
+	chunks          map[uint64]*chunkScheduledTicks
+	loadOrder       []*chunkScheduledTicks
+	trapChunks      []*chunkScheduledTicks
+	explosionChunks []*chunkScheduledTicks
+	hurtChunks      map[*chunkScheduledTicks]struct{}
+	now, order      int64
+	current         *tickqueue.Scheduled[worldgen.FluidType]
+	currentBlock    *tickqueue.Scheduled[string]
 	// Optional read-only diagnostic sink. Install under blockUpdateMu; callbacks
 	// run without owner.mu and must not edit the world or invoke ticking again.
 	observeDispatch func(time int64, kind string, position tickqueue.Position, name string)
@@ -53,7 +53,7 @@ type chunkScheduledTicks struct {
 	fallingRecovery         bool
 	dropRecovery            bool
 	hasLiving               bool
-	hasCreeper              bool
+	hasExplosionActors      bool
 	canExtinguish           bool
 }
 
@@ -210,7 +210,7 @@ func (h *chunkScheduledTicks) unregister() {
 	o.blocks.Remove(h.x, h.z)
 	delete(o.chunks, k)
 	o.trapChunks = slices.DeleteFunc(o.trapChunks, func(record *chunkScheduledTicks) bool { return record == h })
-	o.creeperChunks = slices.DeleteFunc(o.creeperChunks, func(record *chunkScheduledTicks) bool { return record == h })
+	o.explosionChunks = slices.DeleteFunc(o.explosionChunks, func(record *chunkScheduledTicks) bool { return record == h })
 	delete(o.hurtChunks, h)
 	for i, entry := range o.loadOrder {
 		if entry == h {

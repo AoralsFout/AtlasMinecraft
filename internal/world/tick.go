@@ -86,7 +86,7 @@ func (w *World) tickLocked(chunks TickChunks, live, serverTick bool) error {
 		}
 	}
 	if chunks.Entities != nil {
-		if err := w.tickCreepers(chunks.Entities, chunks.livingChanged); err != nil {
+		if err := w.tickExplosionActors(chunks.Entities, chunks.livingChanged); err != nil {
 			failure = errors.Join(failure, err)
 		}
 		deferred := make(map[uint64][]func() error)

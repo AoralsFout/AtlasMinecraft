@@ -42,13 +42,14 @@ def main():
                       resistance=json.loads((run/'resistance.json').read_text()))
         (run/'blocks.json').write_text(json.dumps(assets))
         for src, dest in [('blast.json','testdata/worldgen/creeper_blast_1.21.1.json'),
+                          ('tnt-chain.json','testdata/worldgen/tnt_chain_1.21.1.json'),
                           ('blocks.json','internal/world/blast_blocks_1.21.1.json.gz')]:
             path = common.ROOT / dest
             result = json.dumps(json.loads((run/src).read_text()), sort_keys=True, separators=(',', ':')).encode() + b'\n'
             if dest.endswith('.gz'):
                 result = gzip.compress(result, mtime=0)
             if args.check:
-                actual = path.read_bytes()
+                actual = path.read_bytes() if dest.endswith('.gz') else path.read_text(encoding='utf-8').encode()
                 if (gzip.decompress(actual) != gzip.decompress(result) if dest.endswith('.gz') else actual != result):
                     raise SystemExit(f'original capture differs: {path}')
             else:

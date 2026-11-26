@@ -7,7 +7,7 @@ import (
 	"math"
 )
 
-func publishCreeperEffects(players []*player.Player, dimension string, change world.LivingDamageChange) {
+func publishExplosionEffects(players []*player.Player, dimension string, change world.LivingDamageChange) {
 	pos := change.Entity.Position
 	send := func(id int32, radius float64, payload []byte) {
 		for _, p := range players {
@@ -16,24 +16,26 @@ func publishCreeperEffects(players []*player.Player, dimension string, change wo
 			}
 		}
 	}
-	if silent, _ := change.Entity.Data.Number("Silent"); change.Fuse.Primed && silent == 0 {
+	if silent, _ := change.Entity.Data.Number("Silent"); change.Fuse != nil && change.Fuse.Primed && silent == 0 {
 		// 767 entity.creeper.primed holder, HOSTILE source, volume 1, pitch 0.5.
 		send(proto.SSoundEffect, 16, proto.NewWriter().VarInt(375).VarInt(5).
 			I32(int32(pos[0]*8)).I32(int32(pos[1]*8)).I32(int32(pos[2]*8)).
 			F32(1).F32(.5).I64(change.SoundSeed).Payload())
 	}
-	if change.Fuse.Exploded {
+	if change.Explosion != nil {
+		pos := change.Explosion.Center
 		for _, p := range players {
 			sink := p.SoundPacketSink(dimension, pos[0], pos[1], pos[2], 64)
 			if sink == nil || !p.PlayReady() {
 				continue
 			}
-			sink.SendPacket(proto.SExplosion, creeperExplosionPacket(pos, change.Fuse, p.EID))
+			sink.SendPacket(proto.SExplosion, explosionPacket(change.Explosion, p.EID))
 		}
 	}
 }
 
-func creeperExplosionPacket(pos [3]float64, event *world.CreeperFuseEvent, playerID int32) []byte {
+func explosionPacket(event *world.ExplosionEvent, playerID int32) []byte {
+	pos := event.Center
 	w := proto.NewWriter().F64(pos[0]).F64(pos[1]).F64(pos[2]).F32(event.Power).
 		VarInt(int32(len(event.Affected)))
 	x, y, z := int32(math.Floor(pos[0])), int32(math.Floor(pos[1])), int32(math.Floor(pos[2]))

@@ -21,10 +21,13 @@ type LivingDamageChange struct {
 	Entity           WorldEntity
 	Source           string
 	SourceEntity     int32
+	DirectEntity     int32
 	Removed          bool
 	Spawned          bool
+	Moved            bool
 	CreeperCharged   bool // powered changed from false to true on this strike
 	Fuse             *CreeperFuseEvent
+	Explosion        *ExplosionEvent
 	MooshroomVariant string
 	SoundSeed        int64
 }
@@ -101,11 +104,11 @@ func (ch *Chunk) indexLivingDamage() {
 			inspect(id, child)
 		}
 	}
-	hasCreeper := false
+	hasExplosionActors := false
 	for i := range ch.entities {
 		e := &ch.entities[i]
-		if e.Type == "minecraft:creeper" {
-			hasCreeper = true
+		if ticksExplosionActor(e.Type) {
+			hasExplosionActors = true
 			if e.RuntimeID == 0 {
 				e.RuntimeID = NextRuntimeEntityID()
 			}
@@ -116,13 +119,13 @@ func (ch *Chunk) indexLivingDamage() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	h.hasLiving = living
-	if hasCreeper && !h.hasCreeper {
-		o.creeperChunks = append(o.creeperChunks, h)
-	} else if !hasCreeper && h.hasCreeper {
-		i := slices.Index(o.creeperChunks, h)
-		o.creeperChunks = slices.Delete(o.creeperChunks, i, i+1)
+	if hasExplosionActors && !h.hasExplosionActors {
+		o.explosionChunks = append(o.explosionChunks, h)
+	} else if !hasExplosionActors && h.hasExplosionActors {
+		i := slices.Index(o.explosionChunks, h)
+		o.explosionChunks = slices.Delete(o.explosionChunks, i, i+1)
 	}
-	h.hasCreeper = hasCreeper
+	h.hasExplosionActors = hasExplosionActors
 	h.canExtinguish = exposed
 	if !active {
 		delete(o.hurtChunks, h)
@@ -293,6 +296,7 @@ type livingUpdate struct {
 	bolt         *lightningImpact
 	wet          map[[16]byte]bool
 	blast        map[[16]byte]float32
+	directEntity int32
 	sourceEntity int32
 }
 
@@ -348,7 +352,11 @@ func (ch *Chunk) updateLivingTree(e *WorldEntity, update livingUpdate, changes *
 		if update.blast != nil {
 			if amount, hit := update.blast[e.UUID]; hit {
 				e.Data = maps.Clone(e.Data)
-				source = applyLivingDamage(e, traits, &cooldown, amount, "player_explosion")
+				kind := "player_explosion"
+				if update.sourceEntity == 0 {
+					kind = "explosion"
+				}
+				source = applyLivingDamage(e, traits, &cooldown, amount, kind)
 				changed = source != "" || cooldown != ch.hurtCooldowns[e.UUID]
 			}
 		} else if bolt != nil {
@@ -390,7 +398,7 @@ func (ch *Chunk) updateLivingTree(e *WorldEntity, update livingUpdate, changes *
 			e.Revision++
 			charged := bolt != nil && e.IsChargedCreeper() && !before.IsChargedCreeper()
 			if removed || source != "" || flagChanged || charged || before.Data["Health"].Value != e.Data["Health"].Value {
-				*changes = append(*changes, LivingDamageChange{Entity: *e, Source: source, SourceEntity: update.sourceEntity, Removed: removed, CreeperCharged: charged})
+				*changes = append(*changes, LivingDamageChange{Entity: *e, Source: source, SourceEntity: update.sourceEntity, DirectEntity: update.directEntity, Removed: removed, CreeperCharged: charged})
 			}
 		}
 	}

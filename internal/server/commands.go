@@ -369,7 +369,7 @@ func (s *Server) commandWeather(args []string) string {
 }
 
 func (s *Server) commandGameRule(args []string) string {
-	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule <doDaylightCycle|doWeatherCycle|doMobSpawning|doFireTick|mobGriefing|mobExplosionDropDecay|doTileDrops> [true|false] | /gamerule snowAccumulationHeight [height]"
+	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule <doDaylightCycle|doWeatherCycle|doMobSpawning|doFireTick|mobGriefing|mobExplosionDropDecay|tntExplosionDropDecay|doTileDrops> [true|false] | /gamerule snowAccumulationHeight [height]"
 	if len(args) < 1 || len(args) > 2 {
 		return usage
 	}
@@ -387,7 +387,7 @@ func (s *Server) commandGameRule(args []string) string {
 		}
 		return fmt.Sprintf("Gamerule %s is now set to: %d", rule, height)
 	}
-	explosion := rule == "mobGriefing" || rule == "mobExplosionDropDecay" || rule == "doTileDrops"
+	explosion := rule == "mobGriefing" || rule == "mobExplosionDropDecay" || rule == "tntExplosionDropDecay" || rule == "doTileDrops"
 	if explosion || rule == "doWeatherCycle" || rule == "doDaylightCycle" || rule == "doMobSpawning" || rule == "doFireTick" {
 		if len(args) == 1 {
 			var enabled bool

@@ -84,7 +84,7 @@ func TestCreeperBlastBlocksAgainstDedicatedServer(t *testing.T) {
 				n, _ := stack.Number("count")
 				items = append(items, drop{name, int32(n), e.Position})
 			}
-			if err := w.tickCreepers(func(int32, int32) bool { return true }, func(c LivingDamageChange) {
+			if err := w.tickExplosionActors(func(int32, int32) bool { return true }, func(c LivingDamageChange) {
 				if c.Spawned {
 					collect(c.Entity)
 				}
@@ -223,7 +223,7 @@ func TestBlastChestContentsAgainstDedicatedServer(t *testing.T) {
 				t.Fatal(err)
 			}
 			w.tickRandom = worldgen.NewLegacyRandom(17)
-			change := LivingDamageChange{Entity: WorldEntity{Position: [3]float64{8.5, 200, 8.5}}, Fuse: &CreeperFuseEvent{Power: 3, Exploded: true}}
+			change := LivingDamageChange{Entity: WorldEntity{Position: [3]float64{8.5, 200, 8.5}}, Fuse: &CreeperFuseEvent{ExplosionEvent: ExplosionEvent{Power: 3}, Exploded: true}}
 			var items []drop
 			if err := w.creeperBlast(change, func(c LivingDamageChange) {
 				stack, _ := c.Entity.Data.Object("Item")

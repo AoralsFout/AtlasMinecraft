@@ -12,6 +12,7 @@ import (
 // retained by world storage until their runtime behavior is implemented.
 var generatedEntityTypes = map[string]int32{
 	"minecraft:item":            58,
+	world.TNTEntity:             106,
 	"minecraft:end_crystal":     30,
 	"minecraft:witch":           118,
 	"minecraft:cat":             15,
@@ -85,13 +86,16 @@ func generatedEntitySpawnPayload(id int32, entity world.WorldEntity) []byte {
 		F64(position[0]).F64(position[1]).F64(position[2]).
 		I8(angle(entity.Rotation[1])).I8(angle(entity.Rotation[0])).I8(headYaw).
 		VarInt(data)
-	if entity.Type == world.SkeletonHorseEntity || entity.Type == "minecraft:item" {
+	if entity.Type == world.SkeletonHorseEntity || entity.Type == "minecraft:item" || entity.Type == world.TNTEntity {
 		return fallingMotion(w, entity).Payload()
 	}
 	return w.I16(0).I16(0).I16(0).Payload()
 }
 
 func generatedEntityMetadata(id int32, entity world.WorldEntity) []byte {
+	if entity.Type == world.TNTEntity {
+		return tntFuseMetadata(id, entity)
+	}
 	if entity.Type == "minecraft:armor_stand" {
 		return generatedArmorStandMetadata(id, entity)
 	}
@@ -112,6 +116,11 @@ func generatedEntityMetadata(id int32, entity world.WorldEntity) []byte {
 		w.U8(9).VarInt(8).Bool(false)
 	}
 	return w.U8(0xff).Payload()
+}
+
+func tntFuseMetadata(id int32, entity world.WorldEntity) []byte {
+	fuse, _ := entity.Data.Number("fuse")
+	return proto.NewWriter().VarInt(id).U8(8).VarInt(1).VarInt(int32(fuse)).U8(0xff).Payload()
 }
 
 // Fetch actor snapshots before entityMu: generation and save operations must

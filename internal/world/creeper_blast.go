@@ -2,9 +2,18 @@ package world
 
 import (
 	"atlas/internal/blockrules"
+	"atlas/internal/worldgen"
 	"errors"
 	"math"
 )
+
+type ExplosionEvent struct {
+	Center           [3]float64
+	Power            float32
+	BlockInteraction int32
+	Affected         []worldgen.FeaturePosition
+	PlayerImpulse    map[int32][3]float32
+}
 
 // Explosion.getSeenPercent samples the target's collision box, including the
 // half-remainder offsets on X and Z. Fluids do not occlude these rays.
@@ -56,18 +65,24 @@ func (w *World) blastExposure(center, pos [3]float64, width, height float64) (fl
 }
 
 func (w *World) creeperBlast(change LivingDamageChange, publish func(LivingDamageChange)) error {
-	center := change.Entity.Position
+	event := &change.Fuse.ExplosionEvent
+	event.Center = change.Entity.Position
+	return w.explode(change.Entity, event, publish)
+}
+
+func (w *World) explode(source WorldEntity, event *ExplosionEvent, publish func(LivingDamageChange)) error {
+	center := event.Center
 	if err := w.ensureTickRandom(); err != nil {
 		return err
 	}
 	terrain := fluidRuntime{world: w, settings: w.fluidSettings()}
-	affected, err := terrain.traceBlast(center, change.Fuse.Power)
+	affected, err := terrain.traceBlast(center, event.Power)
 	if err != nil {
 		return err
 	}
-	radius := float64(change.Fuse.Power) * 2
+	radius := float64(event.Power) * 2
 	if radius <= 0 {
-		return terrain.finishBlast(change.Fuse, affected, publish)
+		return terrain.finishBlast(source, event, affected, publish)
 	}
 	impact := func(pos [3]float64, width, height float64) (float64, bool, error) {
 		dx, dy, dz := pos[0]-center[0], pos[1]-center[1], pos[2]-center[2]
@@ -81,13 +96,27 @@ func (w *World) creeperBlast(change LivingDamageChange, publish func(LivingDamag
 	o := w.scheduledTicks
 	o.mu.Lock()
 	var chunks []*chunkScheduledTicks
+	var actorChunks []*chunkScheduledTicks
 	for _, h := range o.loadOrder {
 		x, z := float64(h.x)*16, float64(h.z)*16
-		if h.hasLiving && x <= center[0]+radius && x+16 >= center[0]-radius && z <= center[2]+radius && z+16 >= center[2]-radius {
+		if x > center[0]+radius || x+16 < center[0]-radius || z > center[2]+radius || z+16 < center[2]-radius {
+			continue
+		}
+		if h.hasLiving {
 			chunks = append(chunks, h)
+		}
+		if h.hasExplosionActors {
+			actorChunks = append(actorChunks, h)
 		}
 	}
 	o.mu.Unlock()
+	if err := w.blastItemsAndTNT(actorChunks, source, center, radius, impact, publish); err != nil {
+		return err
+	}
+	attacker := source.RuntimeID
+	if source.Type == TNTEntity {
+		attacker = source.tntOwner
+	}
 	for _, h := range chunks {
 		mobs, err := w.EntitiesInChunk(h.x, h.z)
 		if err != nil {
@@ -118,7 +147,7 @@ func (w *World) creeperBlast(change LivingDamageChange, publish func(LivingDamag
 			}
 		}
 		if len(damage) > 0 {
-			if err := w.updateLivingChunk(h, livingUpdate{blast: damage, sourceEntity: change.Entity.RuntimeID}, nil, publish); err != nil {
+			if err := w.updateLivingChunk(h, livingUpdate{blast: damage, sourceEntity: attacker, directEntity: source.RuntimeID}, nil, publish); err != nil {
 				return err
 			}
 		}
@@ -143,10 +172,10 @@ func (w *World) creeperBlast(change LivingDamageChange, publish func(LivingDamag
 		if length == 0 {
 			continue
 		}
-		if change.Fuse.PlayerImpulse == nil {
-			change.Fuse.PlayerImpulse = make(map[int32][3]float32)
+		if event.PlayerImpulse == nil {
+			event.PlayerImpulse = make(map[int32][3]float32)
 		}
-		change.Fuse.PlayerImpulse[p.ID] = [3]float32{float32(x / length * strength), float32(y / length * strength), float32(z / length * strength)}
+		event.PlayerImpulse[p.ID] = [3]float32{float32(x / length * strength), float32(y / length * strength), float32(z / length * strength)}
 	}
-	return terrain.finishBlast(change.Fuse, affected, publish)
+	return terrain.finishBlast(source, event, affected, publish)
 }

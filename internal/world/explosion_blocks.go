@@ -6,7 +6,6 @@ import (
 	"atlas/internal/worldgen"
 	"errors"
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"reflect"
 	"slices"
@@ -15,12 +14,12 @@ import (
 )
 
 func (w *World) ExplosionRule(name string) bool {
-	return strings.EqualFold(w.gameRule(name, "true"), "true")
+	return strings.EqualFold(w.gameRule(name, strconv.FormatBool(name != "tntExplosionDropDecay")), "true")
 }
 
 func (w *World) SetExplosionRule(name string, enabled bool) error {
 	switch name {
-	case "mobGriefing", "mobExplosionDropDecay", "doTileDrops":
+	case "mobGriefing", "mobExplosionDropDecay", "tntExplosionDropDecay", "doTileDrops":
 	default:
 		return fmt.Errorf("unknown explosion rule %s", name)
 	}
@@ -114,14 +113,17 @@ func mergeBlastDrop(stacks []blastDrop, drop blastDrop) []blastDrop {
 	return append(stacks, drop)
 }
 
-func (r *fluidRuntime) finishBlast(event *CreeperFuseEvent, cells []worldgen.FeaturePosition, publish func(LivingDamageChange)) (failure error) {
+func (r *fluidRuntime) finishBlast(source WorldEntity, event *ExplosionEvent, cells []worldgen.FeaturePosition, publish func(LivingDamageChange)) (failure error) {
 	w := r.world
-	if !w.ExplosionRule("mobGriefing") {
+	decayRule := "mobExplosionDropDecay"
+	if source.Type == TNTEntity {
+		decayRule = "tntExplosionDropDecay"
+	} else if !w.ExplosionRule("mobGriefing") {
 		return nil
 	}
 	event.BlockInteraction = 1
 	var decay float32
-	if w.ExplosionRule("mobExplosionDropDecay") {
+	if w.ExplosionRule(decayRule) {
 		event.BlockInteraction = 2
 		decay = event.Power
 	}
@@ -159,6 +161,19 @@ func (r *fluidRuntime) finishBlast(event *CreeperFuseEvent, cells []worldgen.Fea
 			return err
 		}
 		if state.Name == "minecraft:air" || state.Name == "minecraft:cave_air" || state.Name == "minecraft:void_air" {
+			continue
+		}
+		if state.Name == TNTEntity {
+			if err := r.SetFluidBlock(p, air, 3); err != nil {
+				return err
+			}
+			tnt, err := w.primeBlastTNT(p, source)
+			if err != nil {
+				return err
+			}
+			if err := w.addExplosionEntities(chunkKey{p.X >> 4, p.Z >> 4}, []WorldEntity{tnt}, publish); err != nil {
+				return err
+			}
 			continue
 		}
 		blockEntity, err := r.blastBlockEntity(p)
@@ -206,27 +221,34 @@ func (w *World) spawnBlastDrops(stacks []blastDrop, entities []WorldEntity, publ
 	}
 	groups := make(map[chunkKey][]WorldEntity)
 	for _, e := range entities {
-		key := chunkKey{int32(math.Floor(e.Position[0])) >> 4, int32(math.Floor(e.Position[2])) >> 4}
+		key := explosionActorChunk(e.Position)
+		e.RuntimeID = NextRuntimeEntityID()
 		groups[key] = append(groups[key], e)
 	}
 	var failure error
 	for key, added := range groups {
-		if err := w.fallingEntityOperation(key.x, key.z, func(actor *Region, ch *Chunk) error {
-			updated := append(append([]WorldEntity(nil), ch.entities...), added...)
-			ch.entities = updated
-			ch.entitiesDirty = true
-			if w.store != nil {
-				return persistChunkEntities(actor, ch, updated)
-			}
-			return nil
-		}); err != nil {
-			failure = errors.Join(failure, err)
+		failure = errors.Join(failure, w.addExplosionEntities(key, added, publish))
+	}
+	return failure
+}
+
+func (w *World) addExplosionEntities(key chunkKey, added []WorldEntity, publish func(LivingDamageChange)) error {
+	if err := w.fallingEntityOperation(key.x, key.z, func(actor *Region, ch *Chunk) error {
+		updated := append(slices.Clone(ch.entities), added...)
+		if w.store != nil {
+			return persistChunkEntities(actor, ch, updated)
 		}
+		ch.entities = updated
+		ch.entitiesDirty = true
+		ch.indexLivingDamage()
+		return nil
+	}); err != nil {
+		return err
 	}
 	if publish != nil {
-		for _, e := range entities {
+		for _, e := range added {
 			publish(LivingDamageChange{Entity: e, Spawned: true})
 		}
 	}
-	return failure
+	return nil
 }
