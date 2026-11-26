@@ -26,6 +26,8 @@ def main():
     fires = []
     fire_odds = {}
     copper = []
+    hits = []
+    living = {}
     copper_stages = {}
     horse = None
     skeleton = None
@@ -47,6 +49,10 @@ def main():
             fire_odds = json.loads(line[8:])
         elif line.startswith(b'copper '):
             copper.append(json.loads(line[7:]))
+        elif line.startswith(b'hit '):
+            hits.append(json.loads(line[4:]))
+        elif line.startswith(b'living '):
+            living = json.loads(line[7:])
         elif line.startswith(b'copperStages '):
             copper_stages = json.loads(line[12:])
         elif line.startswith(b'horse '):
@@ -72,6 +78,8 @@ def main():
             lines.append(']}' + (',' if index + 1 < len(scenes) else ''))
         return ('\n'.join([*lines, end]) + '\n').encode()
     payloads = {
+        'internal/world/living_damage_1.21.1.json': (json.dumps(living, sort_keys=True, separators=(',', ':')) + '\n').encode(),
+        'testdata/worldgen/lightning_hits_1.21.1.json': trajectories(hits),
         'internal/world/copper_weathering_1.21.1.json': (json.dumps(copper_stages, indent=2) + '\n').encode(),
         'testdata/worldgen/lightning_copper_1.21.1.json': trajectories(copper),
         'internal/world/fire_odds_1.21.1.json': (json.dumps(fire_odds, separators=(',', ':')) + '\n').encode(),
@@ -89,6 +97,8 @@ def main():
         raise RuntimeError('Incomplete original skeleton trap capture')
     if len(copper) != 16 or len(copper_stages) != 36:
         raise RuntimeError('Incomplete original copper capture')
+    if len(hits) != 8 or 'minecraft:cow' not in living['mobs'] or 'minecraft:iron_helmet' not in living['equipment']:
+        raise RuntimeError('Incomplete original lightning hit capture')
     for name, data in payloads.items():
         path = common.ROOT / name
         if args.check:
@@ -100,6 +110,7 @@ def main():
             common.atomic_write(path, data)
     print(f'{"Checked" if args.check else "Published"} {len(cases)} random-tick cases, {len(precipitation)} precipitation cases, {len(lightning)} lightning cases, {len(traps)} skeleton trap cases, {len(fires)} fire cases and {len(flags)} state flags')
     print(f'{len(copper)} lightning copper cases and {len(copper_stages)} weathering blocks')
+    print(f'{len(hits)} living damage cases, {len(living["mobs"])} living types and {len(living["equipment"])} armor items')
 
 
 if __name__ == '__main__':

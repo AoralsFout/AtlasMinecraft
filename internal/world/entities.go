@@ -34,7 +34,9 @@ type WorldEntity struct {
 	// LoadedFromDisk distinguishes NBT load side effects from a freshly
 	// finalized actor. It is runtime state and is never written into saved NBT.
 	LoadedFromDisk bool
-	Revision       uint64 // runtime mutation order; never saved to entity NBT
+	Revision       uint64            // runtime mutation order; never saved to entity NBT
+	OnFire         bool              // synchronized entity flag, sampled in Entity.baseTick
+	passengerFire  map[[16]byte]bool // shared by detached snapshots of the same passenger tree
 }
 
 //go:embed entity_defaults_1.21.1.txt
@@ -102,6 +104,7 @@ func (r *Region) entitiesInChunk(query entityQuery) {
 		return
 	}
 	result := make([]WorldEntity, len(ch.entities))
+	var passengerFire map[[16]byte]bool
 	for i, e := range ch.entities {
 		data, err := cloneEntityData(e.Data)
 		if err != nil {
@@ -109,6 +112,17 @@ func (r *Region) entitiesInChunk(query entityQuery) {
 			return
 		}
 		e.Data = data
+		if _, hasPassengers := data["Passengers"]; hasPassengers && len(ch.hurtCooldowns) > 0 {
+			if passengerFire == nil {
+				passengerFire = make(map[[16]byte]bool)
+				for uuid, cooldown := range ch.hurtCooldowns {
+					if cooldown.burning {
+						passengerFire[uuid] = true
+					}
+				}
+			}
+			e.passengerFire = passengerFire
+		}
 		result[i] = e
 	}
 	query.result <- entityResult{entities: result}
@@ -291,6 +305,9 @@ func EntityPassengers(entity WorldEntity) ([]WorldEntity, error) {
 			return nil, err
 		}
 		passenger.LoadedFromDisk = entity.LoadedFromDisk
+		passenger.Revision = entity.Revision
+		passenger.OnFire = entity.passengerFire[passenger.UUID]
+		passenger.passengerFire = entity.passengerFire
 		if len(result) == len(values)-1 {
 			passenger.RuntimeID = entity.trapRiderID
 		}

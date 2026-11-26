@@ -223,6 +223,7 @@ public final class RandomTickLevel extends aqu {
     @Override public boolean B(jd p) { return inside(p); }
     @Override public dvi m(jd p) { return chunk; }
     @Override public long aa() { return day; }
+    @Override public long Z() { return time; }
     @Override public long ak() { return day; }
     @Override public bqo al() { return difficulty; }
     @Override public dwy D_() { return dimension == null ? super.D_() : dimension; }
@@ -424,8 +425,127 @@ public final class RandomTickLevel extends aqu {
         for (int y = 319; y >= -64; y--) if (type.e().test(a_(new jd(x,y,z)))) return y + 1;
         return -64;
     }
+    private List<btn> strikeMobs;
+    private List<Integer> struck;
     @Override public List<bsr> a(bsr except, ewx box, java.util.function.Predicate<? super bsr> test) {
-        return List.of();
+        List<bsr> matches = new ArrayList<>();
+        if (!(except instanceof btm) || strikeMobs == null) return matches;
+        for (int i = 0; i < strikeMobs.size(); i++) {
+            btn mob = strikeMobs.get(i);
+            if (box.c(mob.cK()) && test.test(mob)) {
+                matches.add(mob);
+                // The larger query at removal is for the advancement only.
+                if (box.d - box.a == 6) struck.add(i);
+            }
+        }
+        return matches;
+    }
+    @Override public void a(bsr entity, brk source) {}
+    @Override public void a(bsr entity, byte event) {}
+    @Override public void a(cmx player, double x, double y, double z, jm<avo> sound, avq source,
+                            float volume, float pitch, long seed) {}
+
+    public List<Map<String,Object>> hitCases(ka registries) throws Exception {
+        registry = registries;
+        dimension = registries.d(lu.aK).a(akr.a("minecraft:overworld"));
+        field(dcw.class,"J").set(this,new brl(registries));
+        field(dcw.class,"f").set(this,new dyz(19));
+        var cases = new ArrayList<Map<String,Object>>();
+        var sharedFlag = bsr.class.getDeclaredMethod("i",int.class);
+        sharedFlag.setAccessible(true);
+        var collectEquipment = btn.class.getDeclaredMethod("H");
+        collectEquipment.setAccessible(true);
+        for (String name : List.of("ordinary","visual","move","rain","invulnerable","loaded_zero","armor","equipped")) {
+            reset();
+            field(dcw.class,"z").set(this,new dyz(95));
+            weatherRules = new dcs();
+            weatherRules.a(dcs.b).a(false,(net.minecraft.server.MinecraftServer)null);
+            difficulty = bqo.c;
+            rainy = name.equals("rain");
+            strikeMobs = new ArrayList<>();
+            var positions = new ArrayList<double[]>();
+            double x=-32.5, y=70, z=40.5;
+            double half=bsx.w.l()/2.0, height=bsx.w.m();
+            for (double[] p : new double[][]{{x,y,z},{x+3+half,y,z},{x+3+half-.00001,y,z},
+                    {x,y+9,z},{x,y+9-.00001,z},{x,y-3-height,z},{x,y-3-height+.00001,z},
+                    {x,y,z-3-half},{x,y,z-3-half+.00001},{x,y,z+4}}) {
+                btn cow = bsx.w.a(this);
+                cow.e(p[0],p[1],p[2]);
+                // Keep stationary targets alive through the second accepted strike.
+                cow.f(buw.s).a(40.0);
+                cow.v(40f);
+                if (name.equals("armor")) {
+                    cow.f(buw.a).a(12);
+                    cow.f(buw.b).a(2);
+                    cow.f(buw.r).a(2);
+                    cow.C(2f);
+                }
+                if (name.equals("loaded_zero")) cow.h(0);
+                if (name.equals("equipped")) {
+                    cow.a(bsy.f,new cuq(cut.pG));
+                    cow.a(bsy.e,new cuq(cut.pT));
+                    collectEquipment.invoke(cow);
+                }
+                if (name.equals("invulnerable")) cow.n(true);
+                strikeMobs.add(cow);
+                positions.add(p);
+            }
+            long seed=6;
+            btm bolt=bsx.am.a(this);
+            var rng=new dyz(seed);
+            field(bsr.class,"ah").set(bolt,rng);
+            bolt.b=rng.g();
+            field(btm.class,"g").setInt(bolt,1+rng.a(3));
+            boolean visual=name.equals("visual");
+            bolt.a(visual); bolt.e(x,y,z);
+            var ticks=new ArrayList<Object>();
+            for (time=1; time<=45; time++) {
+                if (name.equals("move") && time==2) {
+                    strikeMobs.get(0).e(x,y,z+6);
+                    strikeMobs.get(9).e(x,y,z);
+                }
+                for (btn mob : strikeMobs) mob.aw();
+                struck=new ArrayList<>();
+                if (!bolt.dJ()) bolt.l();
+                var row = new LinkedHashMap<String,Object>();
+                row.put("struck",struck);
+                var states = new ArrayList<double[]>();
+                for (btn m : strikeMobs) {
+                    states.add(new double[]{m.ew(),m.aC(),m.aO,m.am,m.fo(),(boolean)sharedFlag.invoke(m,0)?1:0});
+                }
+                row.put("mobs",states);
+                ticks.add(row);
+            }
+            var scene=new LinkedHashMap<String,Object>();
+            scene.put("name",name); scene.put("position",new double[]{x,y,z}); scene.put("seed",seed);
+            scene.put("visual",visual); scene.put("positions",positions); scene.put("ticks",ticks);
+            cases.add(scene);
+        }
+        strikeMobs=null;
+        return cases;
+    }
+    @Override public boolean r(jd pos) { return strikeMobs != null ? rainy : super.r(pos); }
+    public static Map<String,Object> livingTraits() {
+        var traits = new TreeMap<String,Object>();
+        for (bsx type : lt.f) {
+            if (!bux.b(type)) continue;
+            var attr = bux.a(type);
+            traits.put(lt.f.b(type).toString(), Map.of("armor",attr.b(buw.a),"fireImmune",type.d()));
+        }
+        var equipment = new TreeMap<String,Object>();
+        for (cul item : lt.g) {
+            cuq stack = item.w();
+            for (bsy slot : bsy.values()) {
+                double[] values = {0,0};
+                stack.a(slot,(attr,modifier) -> {
+                    if (attr.equals(buw.a)) values[0] += modifier.c();
+                    if (attr.equals(buw.b)) values[1] += modifier.c();
+                });
+                if (values[0]!=0 || values[1]!=0)
+                    equipment.put(lt.g.b(item).toString(),Map.of("slot",slot.e(),"armor",values[0],"toughness",values[1]));
+            }
+        }
+        return Map.of("mobs",traits,"equipment",equipment);
     }
     @Override public void a(jm<dxz> event, exc pos, dxz.a context) {}
     @Override public bnf ag() { return bnc.a; }

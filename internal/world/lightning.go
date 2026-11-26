@@ -220,7 +220,7 @@ func (w *World) LightningEntities() []WorldEntity {
 	return snapshots
 }
 
-func (w *World) tickLightning(eligible func(int32, int32) bool) error {
+func (w *World) tickLightning(eligible func(int32, int32) bool, publish func(LivingDamageChange)) error {
 	if len(w.bolts) == 0 {
 		return nil
 	}
@@ -266,6 +266,11 @@ func (w *World) tickLightning(eligible func(int32, int32) bool) error {
 				if err := r.lightningFire(bolt, 0); err != nil {
 					failures = append(failures, err)
 				}
+			}
+		}
+		if bolt.life >= 0 && !bolt.visualOnly {
+			if err := w.strikeLivingEntities(lightningImpact{xyz, w.baseDifficulty() == 0}, publish); err != nil {
+				failures = append(failures, err)
 			}
 		}
 		live = append(live, bolt)

@@ -33,6 +33,9 @@ func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 		return nil
 	}
 	w := proto.NewWriter().VarInt(id)
+	if flags := livingFlags(entity); flags != 0 {
+		w.U8(0).VarInt(0).U8(flags)
+	}
 	if health, ok := generatedSnapshotHealth(entity); ok && health != 1 {
 		w.U8(9).VarInt(3).F32(health)
 	}

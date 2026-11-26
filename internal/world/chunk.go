@@ -197,6 +197,7 @@ type Chunk struct {
 	anvilRoot         nbt.Tag
 	entities          []WorldEntity
 	entitiesDirty     bool
+	hurtCooldowns     map[[16]byte]hurtCooldown
 	fromAnvil         bool
 	dirty             bool
 	dirtySections     []bool

@@ -130,6 +130,7 @@ func persistChunkEntities(r *Region, ch *Chunk, entities []WorldEntity) error {
 	}
 	ch.entities = entities
 	ch.entitiesDirty = false
+	ch.indexLivingDamage()
 	r.world.fallingEntities.register(ch)
 	return nil
 }

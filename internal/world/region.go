@@ -335,6 +335,7 @@ func (r *Region) run() {
 			msg.chunk.scheduledTicks = r.world.scheduledTicks.register(msg.chunk)
 			r.world.fallingEntities.register(msg.chunk)
 			msg.chunk.indexSkeletonTraps()
+			msg.chunk.indexLivingDamage()
 			msg.chunk.lastAccess = time.Now()
 			if r.world.lighting != nil {
 				r.applyLight(msg.chunk, r.world.lighting.Snapshot(light.Position{X: msg.cx, Z: msg.cz}), false)

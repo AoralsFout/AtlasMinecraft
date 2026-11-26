@@ -61,6 +61,7 @@ const (
 	SDifficulty         = 0x0B
 	SChunkBatchFinished = 0x0C
 	SChunkBatchStart    = 0x0D
+	SDamageEvent        = 0x1A
 	SGameStateChange    = 0x22
 	SKickDisconnect     = 0x1D
 	SUnloadChunk        = 0x21

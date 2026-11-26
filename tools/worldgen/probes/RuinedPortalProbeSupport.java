@@ -17,19 +17,34 @@ final class RuinedPortalProbeSupport {
         for(int i=1;i<=3;i++)names.add("ruined_portal/giant_portal_"+i);
         return names.toArray(String[]::new);
     }
-    static void bindTags()throws Exception {
+    private static Object vanillaResources() throws Exception {
         var createPack=cls("ats").getDeclaredMethod("b");createPack.setAccessible(true);
         Object pack=createPack.invoke(null);
-        Object resources=cls("atx").getConstructor(cls("ass"),List.class).newInstance(cls("ass").getField("b").get(null),List.of(pack));
+        return cls("atx").getConstructor(cls("ass"),List.class).newInstance(cls("ass").getField("b").get(null),List.of(pack));
+    }
+    static void bindTags()throws Exception {
+        Object resources = vanillaResources();
         for(String[] entry:new String[][]{{"e","block","f"},{"c","fluid","D"}}) {
             Object registry=cls("lt").getField(entry[0]).get(null),registryKey=cls("lu").getField(entry[2]).get(null);
-            Function<Object,Optional<?>> lookup=key->{try{return (Optional<?>)cls("jz").getMethod("c",cls("akr")).invoke(registry,key);}catch(Exception error){throw new IllegalStateException(error);}};
-            Object loader=cls("awv").getConstructor(Function.class,String.class).newInstance(lookup,"tags/"+entry[1]);
-            Map<?,?> loaded=(Map<?,?>)cls("awv").getMethod("b",cls("aue")).invoke(loader,resources);
-            Map<Object,Object> tags=new HashMap<>();
-            for(var tag:loaded.entrySet())tags.put(cls("awu").getMethod("a",cls("akq"),cls("akr")).invoke(null,registryKey,tag.getKey()),new ArrayList<>((java.util.Collection<?>)tag.getValue()));
-            cls("jz").getMethod("a",Map.class).invoke(registry,tags);
+            bindRegistryTags(resources, registry, registryKey, entry[1]);
         }
+    }
+
+    static void bindLivingTags(Object access) throws Exception {
+        Object resources = vanillaResources();
+        for (String[] entry : new String[][]{{"s","damage_type"},{"z","entity_type"},{"K","item"},{"aL","enchantment"}}) {
+            Object key = cls("lu").getField(entry[0]).get(null);
+            Object registry = cls("ka").getMethod("d",cls("akq")).invoke(access,key);
+            bindRegistryTags(resources, registry, key, entry[1]);
+        }
+    }
+    private static void bindRegistryTags(Object resources,Object registry,Object registryKey,String path) throws Exception {
+        Function<Object,Optional<?>> lookup=key->{try{return (Optional<?>)cls("jz").getMethod("c",cls("akr")).invoke(registry,key);}catch(Exception error){throw new IllegalStateException(error);}};
+        Object loader=cls("awv").getConstructor(Function.class,String.class).newInstance(lookup,"tags/"+path);
+        Map<?,?> loaded=(Map<?,?>)cls("awv").getMethod("b",cls("aue")).invoke(loader,resources);
+        Map<Object,Object> tags=new HashMap<>();
+        for(var tag:loaded.entrySet())tags.put(cls("awu").getMethod("a",cls("akq"),cls("akr")).invoke(null,registryKey,tag.getKey()),new ArrayList<>((java.util.Collection<?>)tag.getValue()));
+        cls("jz").getMethod("a",Map.class).invoke(registry,tags);
     }
     static Object properties(int variant)throws Exception {
         // Warm land, cold buried, ocean, overgrown/vines, blackstone, full air.

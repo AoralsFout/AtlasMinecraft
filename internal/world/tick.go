@@ -13,6 +13,7 @@ type TickChunks struct {
 	Random         func(x, z int32) bool // Random block and fluid ticks.
 	publishWeather WeatherPublisher
 	trapChanged    func(TrapChange)
+	livingChanged  func(LivingDamageChange)
 	lightningAdded func(bolt WorldEntity, trap *WorldEntity)
 	Entities       func(x, z int32) bool
 }
@@ -85,7 +86,10 @@ func (w *World) tickLocked(chunks TickChunks, live, serverTick bool) error {
 		}
 	}
 	if chunks.Entities != nil {
-		if err := w.tickLightning(chunks.Entities); err != nil {
+		if err := w.tickLivingDamage(chunks.Entities, chunks.livingChanged); err != nil {
+			failure = errors.Join(failure, err)
+		}
+		if err := w.tickLightning(chunks.Entities, chunks.livingChanged); err != nil {
 			failure = errors.Join(failure, err)
 		}
 		if err := w.tickSkeletonTraps(chunks.Entities, chunks.trapChanged); err != nil {

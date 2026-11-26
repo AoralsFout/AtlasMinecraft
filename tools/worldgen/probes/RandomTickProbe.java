@@ -53,6 +53,12 @@ public final class RandomTickProbe {
         for (Object row : (List<?>) type.getMethod("copperCases",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
             out.println("copper " + gson.toJson(row));
         }
+        Object livingRegistries = IglooProbeSupport.registryAccess();
+        RuinedPortalProbeSupport.bindLivingTags(livingRegistries);
+        for (Object row : (List<?>) type.getMethod("hitCases",Class.forName("ka")).invoke(world,livingRegistries)) {
+            out.println("hit " + gson.toJson(row));
+        }
+        out.println("living " + gson.toJson(type.getMethod("livingTraits").invoke(null)));
         out.flush();
     }
 }

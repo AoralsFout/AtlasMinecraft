@@ -56,6 +56,8 @@ func (s *Server) TickWorlds() error {
 		}
 		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance), publish, added, func(change world.TrapChange) {
 			registerViewers = append(registerViewers, func() { s.publishTrapChange(players, name, change) })
+		}, func(change world.LivingDamageChange) {
+			registerViewers = append(registerViewers, func() { s.publishLivingDamage(players, name, change) })
 		}); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
