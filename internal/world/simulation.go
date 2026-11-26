@@ -12,8 +12,10 @@ import (
 type ChunkPosition struct{ X, Z int32 }
 
 type SimulationPlayer struct {
-	X, Y, Z   float64
-	Spectator bool
+	X, Y, Z                     float64
+	Spectator                   bool
+	ID                          int32
+	Creative, Crouching, Flying bool
 }
 
 // Ticket levels propagate in squares (Chebyshev distance). The outer two

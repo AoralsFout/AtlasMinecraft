@@ -29,6 +29,11 @@ func (s *Server) handlePlay(fc *proto.FramedConn, name string, uuid [16]byte, vi
 		return
 	}
 	p := player.New(name, uuid, s.nextEntityID(), fc)
+	mode := s.World.DefaultGameMode()
+	if hasSaved && saved.HasGameMode {
+		mode = saved.SavedGameMode
+	}
+	p.SetInitialGameMode(mode)
 	if hasSaved {
 		if _, ok := s.WorldInDimension(saved.Dimension); !ok {
 			s.kick(fc, proto.SKickDisconnect, "Saved player dimension is unavailable")
@@ -91,11 +96,7 @@ func (s *Server) handlePlay(fc *proto.FramedConn, name string, uuid [16]byte, vi
 
 	send(proto.SSpawnPosition, proto.NewWriter().
 		I64(proto.PackPosition(spawnX, spawnY, spawnZ)).F32(spawnAngle).Payload())
-	abilityFlags := int8(0x0D)
-	if p.Flying() {
-		abilityFlags |= 0x02
-	}
-	send(proto.SAbilities, proto.NewWriter().I8(abilityFlags).F32(0.05).F32(0.1).Payload())
+	send(proto.SAbilities, proto.NewWriter().I8(p.AbilityFlags()).F32(0.05).F32(0.1).Payload())
 	send(proto.SDifficulty, proto.NewWriter().Bool(false).U8(1).Payload()) // unlocked, easy
 	send(proto.SHeldItemSlot, proto.NewWriter().I8(int8(inventory.Selected)).Payload())
 	s.sendInventory(p)

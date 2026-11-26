@@ -32,17 +32,7 @@ func (w *World) SharedRespawn(ctx context.Context) (PlayerPosition, error) {
 	if distance <= 1 {
 		radius = 1
 	}
-	adventure := false
-	if w.store != nil {
-		v := w.store.vanilla
-		v.mu.Lock()
-		root, _ := v.root.Object()
-		data, _ := root.Object("Data")
-		mode, _ := data.Number("GameType")
-		adventure = mode == 2
-		v.mu.Unlock()
-	}
-	if !adventure {
+	if w.DefaultGameMode() != 2 {
 		width := radius*2 + 1
 		count := min(width*width, int64(math.MaxInt32))
 		step := int64(17)
@@ -101,6 +91,20 @@ func (w *World) SharedRespawn(ctx context.Context) (PlayerPosition, error) {
 		y--
 	}
 	return w.centeredSpawn(BlockPosition{x, y, z}, 0, 0), nil
+}
+
+func (w *World) DefaultGameMode() int8 {
+	if w.store != nil {
+		v := w.store.vanilla
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		root, _ := v.root.Object()
+		data, _ := root.Object("Data")
+		if mode, ok := data.Number("GameType"); ok && mode >= 0 && mode <= 3 {
+			return int8(mode)
+		}
+	}
+	return 1
 }
 
 // ResolvePersonalSpawn returns a charge edit only for a later End return

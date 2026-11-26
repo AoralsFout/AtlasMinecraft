@@ -15,7 +15,7 @@ def main():
     java, javac = common.java_tools()
     classpath = common.reference_classpath(classes)
     probes = common.ROOT / 'tools/worldgen/probes'
-    names = ['RandomTickLevel.java', 'RandomTickProbe.java', 'RuinedPortalProbeSupport.java', 'IglooProbeSupport.java']
+    names = ['RandomTickLevel.java', 'RandomTickProbe.java', 'CreeperFuseProbe.java', 'RuinedPortalProbeSupport.java', 'IglooProbeSupport.java']
     subprocess.run([javac, '-proc:none', '-cp', classpath, '-d', classes,
                     *(probes / name for name in names)], check=True)
     capture = subprocess.run([java, '-Xmx512m', '-cp', classpath, 'atlasprobe.RandomTickProbe'],
@@ -29,6 +29,7 @@ def main():
     hits = []
     conversions = []
     creepers = []
+    fuses = []
     piglin = None
     living = {}
     copper_stages = {}
@@ -58,6 +59,8 @@ def main():
             conversions.append(json.loads(line[11:]))
         elif line.startswith(b'creeper '):
             creepers.append(json.loads(line[8:]))
+        elif line.startswith(b'fuse '):
+            fuses.append(json.loads(line[5:]))
         elif line.startswith(b'piglin '):
             piglin = bytes.fromhex(line[7:].decode())
         elif line.startswith(b'living '):
@@ -87,6 +90,7 @@ def main():
             lines.append(']}' + (',' if index + 1 < len(scenes) else ''))
         return ('\n'.join([*lines, end]) + '\n').encode()
     payloads = {
+        'testdata/worldgen/creeper_fuse_1.21.1.json': trajectories(fuses),
         'testdata/worldgen/lightning_creepers_1.21.1.json': trajectories(creepers),
         'internal/world/zombified_piglin_1.21.1.bin': piglin,
         'testdata/worldgen/lightning_conversions_1.21.1.json': trajectories(conversions),
@@ -111,6 +115,8 @@ def main():
         raise RuntimeError('Incomplete original lightning conversion capture')
     if len(creepers) != 6 or any(len(scene['ticks']) != 15 for scene in creepers):
         raise RuntimeError('Incomplete original charged creeper capture')
+    if len(fuses) != 8 or not all(scene['ticks'] for scene in fuses):
+        raise RuntimeError('Incomplete creeper fuse capture')
     if len(copper) != 16 or len(copper_stages) != 36:
         raise RuntimeError('Incomplete original copper capture')
     if len(hits) != 8 or 'minecraft:cow' not in living['mobs'] or 'minecraft:iron_helmet' not in living['equipment']:
@@ -128,6 +134,7 @@ def main():
     print(f'{len(copper)} lightning copper cases and {len(copper_stages)} weathering blocks')
     print(f'{len(conversions)} lightning conversion cases')
     print(f'{len(creepers)} charged creeper cases')
+    print(f'{len(fuses)} creeper fuse cases, {sum(len(case["ticks"]) for case in fuses)} ticks')
     print(f'{len(hits)} living damage cases, {len(living["mobs"])} living types and {len(living["equipment"])} armor items')
 
 

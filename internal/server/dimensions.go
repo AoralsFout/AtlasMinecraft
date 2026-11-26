@@ -182,7 +182,7 @@ func (s *Server) teleportLocked(p *player.Player, name string, xyz [3]float64, r
 	p.SendPacket(proto.SSpawnPosition, proto.NewWriter().I64(proto.PackPosition(sx, sy, sz)).F32(angle).Payload())
 	s.sendWorldState(p)
 	p.SendPacket(proto.SGameStateChange, proto.NewWriter().U8(proto.GameEventLevelChunksLoadStart).F32(0).Payload())
-	p.SendPacket(proto.SAbilities, proto.NewWriter().I8(0x0D|boolFlyingFlag(p)).F32(0.05).F32(0.1).Payload())
+	p.SendPacket(proto.SAbilities, proto.NewWriter().I8(p.AbilityFlags()).F32(0.05).F32(0.1).Payload())
 	s.syncPosition(p)
 	p.SendPacket(proto.SSetViewPosition, proto.NewWriter().VarInt(cx).VarInt(cz).Payload())
 	if err := w.SpawnChunk(p.WorldPacketSinkInDimension(w.DimensionName()), cx, cz); err != nil {
@@ -190,12 +190,6 @@ func (s *Server) teleportLocked(p *player.Player, name string, xyz [3]float64, r
 	}
 	s.requestChunksAround(p, cx, cz)
 	return nil
-}
-func boolFlyingFlag(p *player.Player) int8 {
-	if p.Flying() {
-		return 2
-	}
-	return 0
 }
 
 func (s *Server) commandExecuteIn(source *player.Player, args []string) string {

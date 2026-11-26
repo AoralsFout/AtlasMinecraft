@@ -9,11 +9,14 @@ import sun.misc.Unsafe;
 /** The server JAR seals the default package. Define the isolated level in a child loader. */
 public final class RandomTickProbe {
     private static final class Loader extends ClassLoader {
-        Class<?> loadLevel() throws IOException {
-            try (InputStream input = getResourceAsStream("RandomTickLevel.class")) {
+        @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (!name.equals("RandomTickLevel") && !name.startsWith("CreeperFuseProbe")) return super.loadClass(name,resolve);
+            Class<?> loaded=findLoadedClass(name);
+            if (loaded!=null) return loaded;
+            try (InputStream input = getResourceAsStream(name+".class")) {
                 byte[] bytes = input.readAllBytes();
-                return defineClass("RandomTickLevel", bytes, 0, bytes.length);
-            }
+                return defineClass(name, bytes, 0, bytes.length);
+            } catch (IOException e) { throw new ClassNotFoundException(name,e); }
         }
     }
 
@@ -22,7 +25,7 @@ public final class RandomTickProbe {
         Class.forName("ab").getMethod("a", Class.forName("ae")).invoke(null, version);
         Class.forName("akt").getMethod("a").invoke(null);
         RuinedPortalProbeSupport.bindTags();
-        Class<?> type = new Loader().loadLevel();
+        Class<?> type = new Loader().loadClass("RandomTickLevel");
         Field field = Unsafe.class.getDeclaredField("theUnsafe");
         field.setAccessible(true);
         Object world = ((Unsafe) field.get(null)).allocateInstance(type);
@@ -65,6 +68,9 @@ public final class RandomTickProbe {
         }
         for (Object row : (List<?>) type.getMethod("creeperCases",Class.forName("ka")).invoke(world,livingRegistries)) {
             out.println("creeper " + gson.toJson(row));
+        }
+        for (Object row : (List<?>) type.getMethod("fuseCases").invoke(world)) {
+            out.println("fuse " + gson.toJson(row));
         }
         out.flush();
     }

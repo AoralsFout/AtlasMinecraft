@@ -48,7 +48,7 @@ func (s *Server) publishEquipment(p *player.Player) {
 	s.sendTracked(p, proto.SSetEquipment, equipmentPayload(p))
 }
 func (s *Server) handleCreativeInventorySlot(p *player.Player, payload []byte) {
-	if s.rejectChestInteraction(p) {
+	if p.GameMode() != player.CreativeMode || s.rejectChestInteraction(p) {
 		return
 	}
 	r := proto.NewReader(payload)

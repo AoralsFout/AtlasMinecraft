@@ -65,6 +65,9 @@ func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 		w.U8(16).VarInt(8).Bool(true)
 	}
 	if entity.Type == "minecraft:creeper" {
+		if direction := entity.CreeperSwellDirection(); direction != -1 {
+			w.U8(16).VarInt(1).VarInt(direction)
+		}
 		if entity.IsChargedCreeper() {
 			w.U8(17).VarInt(8).Bool(true)
 		}

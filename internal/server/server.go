@@ -159,6 +159,7 @@ func (s *Server) savePlayer(p *player.Player) {
 	dimension, x, y, z, yaw, pitch, flying, cooldown := p.WorldPositionWithPortalCooldown()
 	position := world.PlayerPosition{Dimension: dimension, X: x, Y: y, Z: z, Yaw: yaw, Pitch: pitch, Flying: flying, PortalCooldown: cooldown, SeenCredits: p.SeenCredits()}
 	inventory, _ := p.Inventory()
+	position.SavedGameMode, position.HasGameMode = p.GameMode(), true
 	if err := s.World.SavePlayerState(p.UUID, position, inventory); err != nil {
 		slog.Error("player save failed", "player", p.Name, "error", err)
 	}

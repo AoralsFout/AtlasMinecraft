@@ -29,6 +29,8 @@ type worldMeta struct {
 // PlayerPosition remains separate from inventory so position-only tools can
 // update it without overwriting existing player items.
 type PlayerPosition struct {
+	SavedGameMode  int8
+	HasGameMode    bool
 	X, Y, Z        float64
 	Yaw, Pitch     float32
 	Flying         bool

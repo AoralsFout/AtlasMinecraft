@@ -99,7 +99,11 @@ func (s *Server) handleEntityInteraction(p *player.Player, payload []byte) {
 	if p.Crouching() {
 		eye = 1.27
 	}
-	swapped, err := w.InteractLoadedArmorStand(world.ArmorStandClick{CX: cx, CZ: cz, UUID: key.uuid, Held: inventory.Slots[slot], Point: click.point, Eye: [3]float64{x, y + eye, z}, Creative: true})
+	mode := p.GameMode()
+	if mode == player.SpectatorMode {
+		return
+	}
+	swapped, err := w.InteractLoadedArmorStand(world.ArmorStandClick{CX: cx, CZ: cz, UUID: key.uuid, Held: inventory.Slots[slot], Point: click.point, Eye: [3]float64{x, y + eye, z}, Creative: mode == player.CreativeMode})
 	if err != nil {
 		s.Dbg("armor stand interaction rejected: player=%s error=%v", p.Name, err)
 		s.sendInventory(p)

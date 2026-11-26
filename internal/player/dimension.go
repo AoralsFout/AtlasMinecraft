@@ -41,6 +41,28 @@ func (p *Player) GameMode() int8 {
 	return p.gameMode
 }
 
+func (p *Player) SetInitialGameMode(mode int8) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gameMode = mode
+	p.flying = mode == SpectatorMode
+}
+
+func (p *Player) AbilityFlags() int8 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.gameMode == SpectatorMode {
+		return 7
+	}
+	if p.gameMode != CreativeMode {
+		return 0
+	}
+	if p.flying {
+		return 15
+	}
+	return 13
+}
+
 // SimulationPosition captures dimension, exact horizontal position and mode
 // together, including movement that has not crossed a chunk boundary.
 func (p *Player) SimulationPosition() (dimension string, x, z float64, spectator, active bool) {
@@ -49,21 +71,33 @@ func (p *Player) SimulationPosition() (dimension string, x, z float64, spectator
 }
 
 func (p *Player) SimulationPosition3D() (dimension string, x, y, z float64, spectator, active bool) {
+	state, active := p.SimulationState()
+	return state.Dimension, state.X, state.Y, state.Z, state.Mode == SpectatorMode, active
+}
+
+type SimulationState struct {
+	Dimension         string
+	X, Y, Z           float64
+	Mode              int8
+	Crouching, Flying bool
+}
+
+func (p *Player) SimulationState() (SimulationState, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.playReady || p.awaitingCredits {
-		return "", 0, 0, 0, false, false
+		return SimulationState{}, false
 	}
 	select {
 	case <-p.Done:
-		return "", 0, 0, 0, false, false
+		return SimulationState{}, false
 	default:
 	}
-	dimension = p.dimension
+	dimension := p.dimension
 	if dimension == "" {
 		dimension = "minecraft:overworld"
 	}
-	return dimension, p.x, p.y, p.z, p.gameMode == SpectatorMode, true
+	return SimulationState{dimension, p.x, p.y, p.z, p.gameMode, p.crouching, p.flying}, true
 }
 
 func (p *Player) WorldPositionWithPortalCooldown() (string, float64, float64, float64, float32, float32, bool, int32) {

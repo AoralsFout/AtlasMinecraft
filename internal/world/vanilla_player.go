@@ -54,6 +54,9 @@ func (v *VanillaSave) loadPlayer(uuid [16]byte) (PlayerPosition, bool, error) {
 		flying, _ := abilities.Number("flying")
 		p.Flying = flying != 0
 	}
+	if mode, ok := o.Number("playerGameType"); ok && mode >= 0 && mode <= 3 {
+		p.SavedGameMode, p.HasGameMode = int8(mode), true
+	}
 	seen, _ := o.Number("seenCredits")
 	p.SeenCredits = seen != 0
 	if cooldown, ok := o.Number("PortalCooldown"); ok {
@@ -200,6 +203,9 @@ func (v *VanillaSave) savePlayerState(uuid [16]byte, p PlayerPosition, inventory
 		}
 	}
 	o["Dimension"] = nbt.Tag{Type: nbt.String, Value: destination.name}
+	if p.HasGameMode {
+		o["playerGameType"] = nbt.Tag{Type: nbt.Int, Value: int32(p.SavedGameMode)}
+	}
 	o["PortalCooldown"] = nbt.Tag{Type: nbt.Int, Value: p.PortalCooldown}
 	if p.SeenCredits {
 		o["seenCredits"] = nbt.Tag{Type: nbt.Byte, Value: int8(1)}

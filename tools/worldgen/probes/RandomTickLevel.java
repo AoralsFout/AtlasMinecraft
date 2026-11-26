@@ -461,6 +461,22 @@ public final class RandomTickLevel extends aqu {
         if (sound.a() == avp.oO && conversionSeeds!=null) conversionSeeds.add(seed);
     }
 
+    cmx fusePlayer;
+    Float explosionPower;
+    @Override public cmx a(cef conditions, btn source, double x, double y, double z) {
+        if (fusePlayer == null) return super.a(conditions,source,x,y,z);
+        return conditions.a(source,fusePlayer) ? fusePlayer : null;
+    }
+    @Override public dco a(bsr source, double x, double y, double z, float power, dcw.a interaction) {
+        if (fusePlayer == null) return super.a(source,x,y,z,power,interaction);
+        explosionPower=power;
+        return null;
+    }
+    public List<Map<String,Object>> fuseCases() throws Exception {
+        reset();
+        return CreeperFuseProbe.capture(this);
+    }
+
     private btn conversionSource;
     private List<Long> conversionSeeds;
 

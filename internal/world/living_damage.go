@@ -234,7 +234,7 @@ func applyLivingDamage(e *WorldEntity, t livingTrait, c *hurtCooldown, amount fl
 		c.ticks, c.amount = 20, amount
 		e.Data["HurtTime"] = nbt.Tag{Type: nbt.Short, Value: int16(10)}
 	}
-	if source == "lightning_bolt" {
+	if source != "on_fire" {
 		armor := float32(math.Floor(max(0, min(30, livingAttribute(*e, "minecraft:generic.armor", t.Armor)))))
 		toughness := float32(max(0, min(20, livingAttribute(*e, "minecraft:generic.armor_toughness", 0))))
 		amount *= 1 - min(float32(20), max(armor/5, armor-amount/(2+toughness/4)))/25
@@ -249,6 +249,9 @@ func applyLivingDamage(e *WorldEntity, t livingTrait, c *hurtCooldown, amount fl
 		protection += enchantmentLevel(components, "minecraft:protection")
 		if source == "on_fire" {
 			protection += 2 * enchantmentLevel(components, "minecraft:fire_protection")
+		}
+		if source == "player_explosion" {
+			protection += 2 * enchantmentLevel(components, "minecraft:blast_protection")
 		}
 	})
 	amount *= 1 - float32(min(20, protection))/25

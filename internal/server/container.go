@@ -177,7 +177,7 @@ func (s *Server) handleChestClick(p *player.Player, payload []byte) bool {
 	drag := session.drag.clone()
 	contents, err := session.world.UpdateChest(session.position, 0, func(chest *world.ChestInventory) error {
 		slots := chestMenuSlots(chest, &inventory)
-		applyChestAction(&slots, &inventory.Carried, &inventory.Slots[45], &drag, int(slot), int(button), int(mode), true)
+		applyChestAction(&slots, &inventory.Carried, &inventory.Slots[45], &drag, int(slot), int(button), int(mode), p.GameMode() == player.CreativeMode)
 		storeChestMenu(slots, chest, &inventory)
 		return nil
 	})

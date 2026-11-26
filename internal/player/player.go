@@ -245,7 +245,7 @@ func (p *Player) Pos() (x, y, z float64, yaw, pitch float32, ground bool) {
 
 func (p *Player) SetFlying(v bool) {
 	p.mu.Lock()
-	p.flying = v
+	p.flying = p.gameMode == SpectatorMode || p.gameMode == CreativeMode && v
 	p.mu.Unlock()
 }
 

@@ -19,9 +19,8 @@ func (s *Server) TickWorlds() error {
 	players := s.Hub.Snapshot()
 	slices.SortFunc(players, func(a, b *player.Player) int { return cmp.Compare(a.EID, b.EID) })
 	for _, p := range players {
-		dimension, x, y, z, spectator, active := p.SimulationPosition3D()
-		if active {
-			byDimension[dimension] = append(byDimension[dimension], world.SimulationPlayer{X: x, Y: y, Z: z, Spectator: spectator})
+		if state, active := p.SimulationState(); active {
+			byDimension[state.Dimension] = append(byDimension[state.Dimension], world.SimulationPlayer{X: state.X, Y: state.Y, Z: state.Z, ID: p.EID, Spectator: state.Mode == player.SpectatorMode, Creative: state.Mode == player.CreativeMode, Crouching: state.Crouching, Flying: state.Flying})
 		}
 	}
 	var errs []error

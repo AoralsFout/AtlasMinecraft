@@ -20,9 +20,11 @@ type hurtCooldown struct {
 type LivingDamageChange struct {
 	Entity           WorldEntity
 	Source           string
+	SourceEntity     int32
 	Removed          bool
 	Spawned          bool
 	CreeperCharged   bool // powered changed from false to true on this strike
+	Fuse             *CreeperFuseEvent
 	MooshroomVariant string
 	SoundSeed        int64
 }
@@ -99,13 +101,28 @@ func (ch *Chunk) indexLivingDamage() {
 			inspect(id, child)
 		}
 	}
-	for _, e := range ch.entities {
+	hasCreeper := false
+	for i := range ch.entities {
+		e := &ch.entities[i]
+		if e.Type == "minecraft:creeper" {
+			hasCreeper = true
+			if e.RuntimeID == 0 {
+				e.RuntimeID = NextRuntimeEntityID()
+			}
+		}
 		inspect(e.Type, e.Data)
 	}
 	o := h.owner
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	h.hasLiving = living
+	if hasCreeper && !h.hasCreeper {
+		o.creeperChunks = append(o.creeperChunks, h)
+	} else if !hasCreeper && h.hasCreeper {
+		i := slices.Index(o.creeperChunks, h)
+		o.creeperChunks = slices.Delete(o.creeperChunks, i, i+1)
+	}
+	h.hasCreeper = hasCreeper
 	h.canExtinguish = exposed
 	if !active {
 		delete(o.hurtChunks, h)
@@ -133,7 +150,7 @@ func (w *World) strikeLivingEntities(bolt lightningImpact, publish func(LivingDa
 	}
 	o.mu.Unlock()
 	for _, h := range targets {
-		if err := w.updateLivingChunk(h, &bolt, nil, nil, publish); err != nil {
+		if err := w.updateLivingChunk(h, livingUpdate{bolt: &bolt}, nil, publish); err != nil {
 			return err
 		}
 	}
@@ -199,12 +216,12 @@ func (w *World) tickLivingDamage(eligible func(int32, int32) bool, publish func(
 		if len(tickAfter) > 0 {
 			now = func(id [16]byte) bool { return tickAfter[id] == 0 }
 		}
-		if err := w.updateLivingChunk(h, nil, wet, now, publish); err != nil {
+		if err := w.updateLivingChunk(h, livingUpdate{wet: wet}, now, publish); err != nil {
 			return err
 		}
 		for order := range later {
 			deferred[order] = append(deferred[order], func() error {
-				return w.updateLivingChunk(h, nil, wet, func(id [16]byte) bool { return tickAfter[id] == order }, publish)
+				return w.updateLivingChunk(h, livingUpdate{wet: wet}, func(id [16]byte) bool { return tickAfter[id] == order }, publish)
 			})
 		}
 	}
@@ -272,7 +289,14 @@ func (w *World) livingWet(e WorldEntity) (bool, error) {
 	return false, nil
 }
 
-func (w *World) updateLivingChunk(h *chunkScheduledTicks, bolt *lightningImpact, wet map[[16]byte]bool, selected func([16]byte) bool, publish func(LivingDamageChange)) error {
+type livingUpdate struct {
+	bolt         *lightningImpact
+	wet          map[[16]byte]bool
+	blast        map[[16]byte]float32
+	sourceEntity int32
+}
+
+func (w *World) updateLivingChunk(h *chunkScheduledTicks, update livingUpdate, selected func([16]byte) bool, publish func(LivingDamageChange)) error {
 	var changes []LivingDamageChange
 	err := w.fallingEntityOperation(h.x, h.z, func(_ *Region, ch *Chunk) error {
 		var dismounted []WorldEntity
@@ -283,7 +307,7 @@ func (w *World) updateLivingChunk(h *chunkScheduledTicks, bolt *lightningImpact,
 				i++
 				continue
 			}
-			changed, removed, err := ch.updateLivingTree(e, bolt, wet, &changes, &dismounted)
+			changed, removed, err := ch.updateLivingTree(e, update, &changes, &dismounted)
 			if err != nil {
 				return err
 			}
@@ -313,14 +337,21 @@ func (w *World) updateLivingChunk(h *chunkScheduledTicks, bolt *lightningImpact,
 	return nil
 }
 
-func (ch *Chunk) updateLivingTree(e *WorldEntity, bolt *lightningImpact, wet map[[16]byte]bool, changes *[]LivingDamageChange, dismounted *[]WorldEntity) (bool, bool, error) {
+func (ch *Chunk) updateLivingTree(e *WorldEntity, update livingUpdate, changes *[]LivingDamageChange, dismounted *[]WorldEntity) (bool, bool, error) {
+	bolt, wet := update.bolt, update.wet
 	changed, removed := false, false
 	if traits, ok := livingDefaults.Mobs[e.Type]; ok {
 		before := *e
 		cooldown := ch.hurtCooldowns[e.UUID]
 		wasBurning := cooldown.burning
 		source := ""
-		if bolt != nil {
+		if update.blast != nil {
+			if amount, hit := update.blast[e.UUID]; hit {
+				e.Data = maps.Clone(e.Data)
+				source = applyLivingDamage(e, traits, &cooldown, amount, "player_explosion")
+				changed = source != "" || cooldown != ch.hurtCooldowns[e.UUID]
+			}
+		} else if bolt != nil {
 			hp, _ := e.Data["Health"].Value.(float32)
 			if hp > 0 && lightningIntersects(bolt.position, *e) {
 				switch {
@@ -359,7 +390,7 @@ func (ch *Chunk) updateLivingTree(e *WorldEntity, bolt *lightningImpact, wet map
 			e.Revision++
 			charged := bolt != nil && e.IsChargedCreeper() && !before.IsChargedCreeper()
 			if removed || source != "" || flagChanged || charged || before.Data["Health"].Value != e.Data["Health"].Value {
-				*changes = append(*changes, LivingDamageChange{Entity: *e, Source: source, Removed: removed, CreeperCharged: charged})
+				*changes = append(*changes, LivingDamageChange{Entity: *e, Source: source, SourceEntity: update.sourceEntity, Removed: removed, CreeperCharged: charged})
 			}
 		}
 	}
@@ -372,7 +403,7 @@ func (ch *Chunk) updateLivingTree(e *WorldEntity, bolt *lightningImpact, wet map
 			return changed, removed, err
 		}
 		child.Revision = e.Revision
-		dirty, discard, err := ch.updateLivingTree(&child, bolt, wet, changes, dismounted)
+		dirty, discard, err := ch.updateLivingTree(&child, update, changes, dismounted)
 		if err != nil {
 			return changed, removed, err
 		}

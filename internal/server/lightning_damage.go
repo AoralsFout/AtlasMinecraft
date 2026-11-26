@@ -7,8 +7,11 @@ import (
 )
 
 // Protocol 767 registry IDs are the positions in the damage_type registry
-// sent during configuration. Neither environmental source has an attacker.
+// sent during configuration. A creeper explosion carries the source entity.
 func (s *Server) publishLivingDamage(players []*player.Player, dimension string, change world.LivingDamageChange) {
+	if change.Fuse != nil {
+		publishCreeperEffects(players, dimension, change)
+	}
 	key := generatedEntityKey{dimension, change.Entity.UUID}
 	s.trapRevision.Add(1)
 	s.entityMu.Lock()
@@ -71,7 +74,12 @@ func (s *Server) publishLivingDamage(players []*player.Player, dimension string,
 			if change.Source == "on_fire" {
 				source = 29
 			}
-			sink.SendPacket(proto.SDamageEvent, proto.NewWriter().VarInt(id).VarInt(source).VarInt(0).VarInt(0).Bool(false).Payload())
+			var attacker int32
+			if change.Source == "player_explosion" {
+				source = 33
+				attacker = change.SourceEntity + 1
+			}
+			sink.SendPacket(proto.SDamageEvent, proto.NewWriter().VarInt(id).VarInt(source).VarInt(attacker).VarInt(attacker).Bool(false).Payload())
 		}
 		if metadata != nil {
 			sink.SendPacket(proto.SEntityMetadata, metadata)
@@ -80,6 +88,12 @@ func (s *Server) publishLivingDamage(players []*player.Player, dimension string,
 }
 
 func livingDamageMetadata(id int32, previous world.WorldEntity, change world.LivingDamageChange) []byte {
+	if change.Fuse != nil {
+		if !change.Fuse.DirectionChanged {
+			return nil
+		}
+		return proto.NewWriter().VarInt(id).U8(16).VarInt(1).VarInt(change.Entity.CreeperSwellDirection()).U8(0xff).Payload()
+	}
 	hp, _ := change.Entity.Data["Health"].Value.(float32)
 	flags := livingFlags(change.Entity)
 	w := proto.NewWriter().VarInt(id)
