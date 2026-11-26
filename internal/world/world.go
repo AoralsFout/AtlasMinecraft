@@ -37,6 +37,7 @@ type World struct {
 	weatherStopped  bool
 	mobsDisabled    bool
 	fireTickStopped bool
+	ruleOverrides   map[string]string // in-memory rules, shared through clockOwner
 	levels          WeatherLevels
 	snowHeight      int32
 	seed            int64

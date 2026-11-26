@@ -157,6 +157,7 @@ type fluidRuntime struct {
 	chained        int
 	fallingDrops   []WorldEntity // staged until the falling entity's atomic save
 	deferLeafSaves bool
+	blastChunks    map[chunkKey]bool
 }
 type fluidNeighborUpdate struct {
 	position     worldgen.FeaturePosition
@@ -254,9 +255,12 @@ func (r *fluidRuntime) set(p worldgen.FeaturePosition, s worldgen.SurfaceBlockSt
 	leafDistanceOnly := before.Name == s.Name && strings.HasSuffix(s.Name, "_leaves") &&
 		before.Properties["distance"] != s.Properties["distance"] &&
 		before.Properties["persistent"] == s.Properties["persistent"] && before.Properties["waterlogged"] == s.Properties["waterlogged"]
+	if r.blastChunks != nil {
+		r.blastChunks[chunkKey{p.X >> 4, p.Z >> 4}] = true
+	}
 	if _, err := r.world.editBlock(setBlockMsg{
 		x: p.X, y: p.Y, z: p.Z, state: id, expected: &old, raw: true, flags: flags,
-		deferSave: r.deferLeafSaves && leafDistanceOnly,
+		deferSave: r.blastChunks != nil || r.deferLeafSaves && leafDistanceOnly,
 	}); err != nil {
 		return err
 	}

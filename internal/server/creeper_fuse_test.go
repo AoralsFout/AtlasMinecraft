@@ -5,11 +5,101 @@ import (
 	"atlas/internal/nbt"
 	"atlas/internal/player"
 	"atlas/internal/proto"
+	"atlas/internal/world"
+	"atlas/internal/worldgen"
+	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"math"
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestCreeperExplosionGameRules(t *testing.T) {
+	s, _, _ := dimensionTestServer(t)
+	for _, rule := range []string{"mobGriefing", "mobExplosionDropDecay", "doTileDrops"} {
+		if got := s.commandGameRule([]string{rule}); got != "Gamerule "+rule+" is currently set to: true" {
+			t.Fatal(got)
+		}
+		for _, value := range []string{"false", "true"} {
+			if got := s.commandGameRule([]string{rule, value}); got != "Gamerule "+rule+" is now set to: "+value {
+				t.Fatal(got)
+			}
+			for _, w := range s.Worlds() {
+				if w.ExplosionRule(rule) != (value == "true") {
+					t.Fatalf("%s: %s=%s", w.DimensionName(), rule, value)
+				}
+			}
+		}
+	}
+}
+
+func TestCreeperBlocksExplosionPacket(t *testing.T) {
+	raw, err := os.ReadFile("../../testdata/worldgen/creeper_blast_1.21.1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ref struct {
+		ItemPackets struct{ Spawn, Metadata string }
+		Cases       []struct {
+			Power       float32
+			Interaction int32
+			Affected    int
+			Packet      string
+		}
+	}
+	if err := json.Unmarshal(raw, &ref); err != nil {
+		t.Fatal(err)
+	}
+	drop := world.WorldEntity{Type: "minecraft:item", UUID: [16]byte{7: 1, 15: 2},
+		Position: [3]float64{-3.25, 200.125, 17.875}, Rotation: [2]float32{45, 0},
+		Data: nbt.Object{"Item": {Type: nbt.Compound, Value: nbt.Object{"id": {Type: nbt.String, Value: "minecraft:diamond"}, "count": {Type: nbt.Int, Value: int32(19)}}},
+			"Motion": {Type: nbt.List, ListType: nbt.Double, Value: []nbt.Tag{{Type: nbt.Double, Value: -.05}, {Type: nbt.Double, Value: .2}, {Type: nbt.Double, Value: .075}}}}}
+	if got := hex.EncodeToString(generatedEntitySpawnPayload(77, drop)); got != ref.ItemPackets.Spawn {
+		t.Errorf("item spawn %s, native %s", got, ref.ItemPackets.Spawn)
+	}
+	if got := hex.EncodeToString(generatedEntityMetadata(77, drop)); got != ref.ItemPackets.Metadata {
+		t.Errorf("item metadata %s, native %s", got, ref.ItemPackets.Metadata)
+	}
+	for _, row := range ref.Cases {
+		native, err := hex.DecodeString(row.Packet)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := proto.NewReader(native)
+		var pos [3]float64
+		for i := range pos {
+			pos[i], err = r.F64()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		event := world.CreeperFuseEvent{Power: row.Power, BlockInteraction: row.Interaction}
+		_, err = r.F32()
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, err := r.VarInt()
+		if err != nil || int(n) != row.Affected {
+			t.Fatalf("affected %d: %v", n, err)
+		}
+		for range n {
+			var xyz [3]int32
+			for i := range xyz {
+				v, err := r.I8()
+				if err != nil {
+					t.Fatal(err)
+				}
+				xyz[i] = int32(math.Floor(pos[i])) + int32(v)
+			}
+			event.Affected = append(event.Affected, worldgen.FeaturePosition{X: xyz[0], Y: xyz[1], Z: xyz[2]})
+		}
+		if !bytes.Equal(creeperExplosionPacket(pos, &event, 1), native) {
+			t.Fatalf("native packet mismatch for power %.0f interaction %d", row.Power, row.Interaction)
+		}
+	}
+}
 
 // Frozen dedicated 1.21.1 server, mobGriefing=false. The player stands 2.75
 // blocks east; cows stand on both sides of the damage radius and exactly on it.
@@ -25,6 +115,9 @@ func TestCreeperExplosionAgainstDedicatedServer(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, p, dir := dimensionTestServer(t)
+			if err := s.World.SetExplosionRule("mobGriefing", false); err != nil {
+				t.Fatal(err)
+			}
 			s.Cfg.SimulationDistance = 2
 			p.SetInitialGameMode(0)
 			p.SetPos(11.25, -59, 8.5, 0, 0, true)

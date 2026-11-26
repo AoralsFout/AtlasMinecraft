@@ -14,6 +14,8 @@ import (
 type CreeperFuseEvent struct {
 	DirectionChanged, Primed, Exploded bool
 	Power                              float32
+	BlockInteraction                   int32
+	Affected                           []worldgen.FeaturePosition
 	PlayerImpulse                      map[int32][3]float32
 }
 

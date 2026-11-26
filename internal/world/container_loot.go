@@ -75,23 +75,33 @@ func FillChestLoot(table string, seed int64, luck float32) ([27]item.Stack, erro
 	if seed == 0 {
 		return slots, fmt.Errorf("unseeded loot requires the world's saved random_sequence stream")
 	}
+	err := fillContainerLoot(slots[:], table, luck, worldgen.NewLegacyRandom(seed))
+	return slots, err
+}
+
+type containerLootRandom interface {
+	NextIntBound(int32) int32
+	NextBoolean() bool
+}
+
+func fillContainerLoot(slots []item.Stack, table string, luck float32, random containerLootRandom) error {
 	if math.IsNaN(float64(luck)) || math.IsInf(float64(luck), 0) {
-		return slots, fmt.Errorf("invalid loot luck")
+		return fmt.Errorf("invalid loot luck")
 	}
 	assets, err := readChestLootData()
 	if err != nil {
-		return slots, err
+		return err
 	}
 	definition, ok := assets.Tables[table]
 	if !ok {
-		return slots, fmt.Errorf("unsupported original chest loot table %s", table)
+		return fmt.Errorf("unsupported original chest loot table %s", table)
 	}
-	random := worldgen.NewLegacyRandom(seed)
+
 	var stacks []item.Stack
 	for _, pool := range definition.Pools {
 		rolls, err := chestLootInt(pool.Rolls, random)
 		if err != nil {
-			return slots, err
+			return err
 		}
 		rolls += int32(math.Floor(float64(pool.BonusRolls * luck)))
 		for roll := int32(0); roll < rolls; roll++ {
@@ -129,18 +139,18 @@ func FillChestLoot(table string, seed int64, luck float32) ([27]item.Stack, erro
 				continue
 			}
 			if entry.Type != "minecraft:item" {
-				return slots, fmt.Errorf("unsupported chest entry %s", entry.Type)
+				return fmt.Errorf("unsupported chest entry %s", entry.Type)
 			}
 			id, ok := item.ID(entry.Name)
 			if !ok {
-				return slots, fmt.Errorf("unknown original loot item %s", entry.Name)
+				return fmt.Errorf("unknown original loot item %s", entry.Name)
 			}
 			stack := item.New(id, 1)
 			for _, functions := range [][]chestLootFunction{entry.Functions, pool.Functions, definition.Functions} {
 				for _, function := range functions {
 					stack, err = applyChestLootFunction(assets, stack, function, random)
 					if err != nil {
-						return slots, err
+						return err
 					}
 				}
 			}
@@ -151,7 +161,7 @@ func FillChestLoot(table string, seed int64, luck float32) ([27]item.Stack, erro
 			}
 		}
 	}
-	available := make([]int, 27)
+	available := make([]int, len(slots))
 	for i := range available {
 		available[i] = i
 	}
@@ -192,16 +202,16 @@ func FillChestLoot(table string, seed int64, luck float32) ([27]item.Stack, erro
 		slots[available[last]] = stack
 		available = available[:last]
 	}
-	return slots, nil
+	return nil
 }
 
-func chestLootRange(random *worldgen.LegacyRandom, minValue, maxValue int32) int32 {
+func chestLootRange(random containerLootRandom, minValue, maxValue int32) int32 {
 	if minValue >= maxValue {
 		return minValue
 	}
 	return random.NextIntBound(maxValue-minValue+1) + minValue
 }
-func chestLootInt(raw json.RawMessage, random *worldgen.LegacyRandom) (int32, error) {
+func chestLootInt(raw json.RawMessage, random containerLootRandom) (int32, error) {
 	var constant float32
 	if err := json.Unmarshal(raw, &constant); err == nil {
 		return int32(math.Floor(float64(constant))), nil
@@ -215,13 +225,13 @@ func chestLootInt(raw json.RawMessage, random *worldgen.LegacyRandom) (int32, er
 	}
 	return chestLootRange(random, int32(math.Floor(float64(uniform.Min))), int32(math.Floor(float64(uniform.Max)))), nil
 }
-func shuffleChestList[T any](values []T, random *worldgen.LegacyRandom) {
+func shuffleChestList[T any](values []T, random containerLootRandom) {
 	for i := len(values); i > 1; i-- {
 		j := int(random.NextIntBound(int32(i)))
 		values[i-1], values[j] = values[j], values[i-1]
 	}
 }
-func applyChestLootFunction(assets *chestLootData, stack item.Stack, function chestLootFunction, random *worldgen.LegacyRandom) (item.Stack, error) {
+func applyChestLootFunction(assets *chestLootData, stack item.Stack, function chestLootFunction, random containerLootRandom) (item.Stack, error) {
 	switch function.Function {
 	case "minecraft:set_count":
 		count, err := chestLootInt(function.Count, random)

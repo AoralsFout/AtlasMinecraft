@@ -4,6 +4,7 @@ import (
 	"atlas/internal/player"
 	"atlas/internal/proto"
 	"atlas/internal/world"
+	"math"
 )
 
 func publishCreeperEffects(players []*player.Player, dimension string, change world.LivingDamageChange) {
@@ -27,11 +28,19 @@ func publishCreeperEffects(players []*player.Player, dimension string, change wo
 			if sink == nil || !p.PlayReady() {
 				continue
 			}
-			impulse := change.Fuse.PlayerImpulse[p.EID]
-			// No block edits yet. KEEP, explosion / explosion_emitter, generic.explode.
-			sink.SendPacket(proto.SExplosion, proto.NewWriter().F64(pos[0]).F64(pos[1]).F64(pos[2]).
-				F32(change.Fuse.Power).VarInt(0).F32(impulse[0]).F32(impulse[1]).F32(impulse[2]).
-				VarInt(0).VarInt(22).VarInt(21).VarInt(577).Payload())
+			sink.SendPacket(proto.SExplosion, creeperExplosionPacket(pos, change.Fuse, p.EID))
 		}
 	}
+}
+
+func creeperExplosionPacket(pos [3]float64, event *world.CreeperFuseEvent, playerID int32) []byte {
+	w := proto.NewWriter().F64(pos[0]).F64(pos[1]).F64(pos[2]).F32(event.Power).
+		VarInt(int32(len(event.Affected)))
+	x, y, z := int32(math.Floor(pos[0])), int32(math.Floor(pos[1])), int32(math.Floor(pos[2]))
+	for _, cell := range event.Affected {
+		w.I8(int8(cell.X - x)).I8(int8(cell.Y - y)).I8(int8(cell.Z - z))
+	}
+	impulse := event.PlayerImpulse[playerID]
+	return w.F32(impulse[0]).F32(impulse[1]).F32(impulse[2]).
+		VarInt(event.BlockInteraction).VarInt(22).VarInt(21).VarInt(577).Payload()
 }

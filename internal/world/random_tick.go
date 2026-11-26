@@ -70,6 +70,13 @@ func (h *chunkScheduledTicks) publishSection(i int, s *Section) {
 }
 
 func (w *World) gameRule(name, fallback string) string {
+	w = w.clockOwner()
+	w.stateMu.RLock()
+	override, ok := w.ruleOverrides[name]
+	w.stateMu.RUnlock()
+	if ok {
+		return override
+	}
 	if w.store != nil {
 		v := w.store.vanilla
 		v.mu.Lock()

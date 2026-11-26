@@ -57,9 +57,17 @@ func (w *World) blastExposure(center, pos [3]float64, width, height float64) (fl
 
 func (w *World) creeperBlast(change LivingDamageChange, publish func(LivingDamageChange)) error {
 	center := change.Entity.Position
+	if err := w.ensureTickRandom(); err != nil {
+		return err
+	}
+	terrain := fluidRuntime{world: w, settings: w.fluidSettings()}
+	affected, err := terrain.traceBlast(center, change.Fuse.Power)
+	if err != nil {
+		return err
+	}
 	radius := float64(change.Fuse.Power) * 2
 	if radius <= 0 {
-		return nil
+		return terrain.finishBlast(change.Fuse, affected, publish)
 	}
 	impact := func(pos [3]float64, width, height float64) (float64, bool, error) {
 		dx, dy, dz := pos[0]-center[0], pos[1]-center[1], pos[2]-center[2]
@@ -140,5 +148,5 @@ func (w *World) creeperBlast(change LivingDamageChange, publish func(LivingDamag
 		}
 		change.Fuse.PlayerImpulse[p.ID] = [3]float32{float32(x / length * strength), float32(y / length * strength), float32(z / length * strength)}
 	}
-	return nil
+	return terrain.finishBlast(change.Fuse, affected, publish)
 }

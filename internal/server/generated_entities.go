@@ -11,6 +11,7 @@ import (
 // registry and codecs in GeneratedEntityPacketProbe. Unknown saved types are
 // retained by world storage until their runtime behavior is implemented.
 var generatedEntityTypes = map[string]int32{
+	"minecraft:item":            58,
 	"minecraft:end_crystal":     30,
 	"minecraft:witch":           118,
 	"minecraft:cat":             15,
@@ -67,6 +68,9 @@ func generatedEntitySpawnPayload(id int32, entity world.WorldEntity) []byte {
 	angle := func(value float32) int8 { return int8(int32(math.Floor(float64(value * 256 / 360)))) }
 	position, data := entity.Position, int32(0)
 	headYaw := int8(int32(math.Floor(float64(entity.Rotation[0]) * 256 / 360)))
+	if entity.Type == "minecraft:item" {
+		headYaw = 0
+	}
 	if entity.Type == "minecraft:item_frame" {
 		for i, key := range []string{"TileX", "TileY", "TileZ"} {
 			if value, ok := entity.Data.Number(key); ok {
@@ -81,7 +85,7 @@ func generatedEntitySpawnPayload(id int32, entity world.WorldEntity) []byte {
 		F64(position[0]).F64(position[1]).F64(position[2]).
 		I8(angle(entity.Rotation[1])).I8(angle(entity.Rotation[0])).I8(headYaw).
 		VarInt(data)
-	if entity.Type == world.SkeletonHorseEntity {
+	if entity.Type == world.SkeletonHorseEntity || entity.Type == "minecraft:item" {
 		return fallingMotion(w, entity).Payload()
 	}
 	return w.I16(0).I16(0).I16(0).Payload()
@@ -91,8 +95,8 @@ func generatedEntityMetadata(id int32, entity world.WorldEntity) []byte {
 	if entity.Type == "minecraft:armor_stand" {
 		return generatedArmorStandMetadata(id, entity)
 	}
-	if entity.Type == "minecraft:item_frame" {
-		return generatedItemFrameMetadata(id, entity)
+	if entity.Type == "minecraft:item_frame" || entity.Type == "minecraft:item" {
+		return generatedItemMetadata(id, entity)
 	}
 	if entity.Type == "minecraft:chest_minecart" {
 		return proto.NewWriter().VarInt(id).U8(0xff).Payload()

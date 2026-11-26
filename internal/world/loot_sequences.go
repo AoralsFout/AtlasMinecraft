@@ -79,30 +79,40 @@ type leafDrop struct {
 }
 
 func (s *lootSequences) leafDrops(name string) ([]leafDrop, error) {
+	var drops []leafDrop
+	err := s.withSequence("minecraft:blocks/"+strings.TrimPrefix(name, "minecraft:"), func(rng *randomsource.Xoroshiro) error {
+		drops = rollLeafDrops(name, rng)
+		return nil
+	})
+	return drops, err
+}
+
+func (s *lootSequences) withSequence(key string, roll func(*randomsource.Xoroshiro) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.load(); err != nil {
-		return nil, err
+		return err
 	}
-	key := "minecraft:blocks/" + strings.TrimPrefix(name, "minecraft:")
 	var rng *randomsource.Xoroshiro
 	entry := nbt.Object{}
 	if saved, ok := s.streams[key]; ok {
 		entry, _ = saved.Object()
 		words, ok := entry["source"].Longs()
 		if !ok || len(words) != 2 {
-			return nil, fmt.Errorf("invalid random sequence %s", key)
+			return fmt.Errorf("invalid random sequence %s", key)
 		}
 		rng = randomsource.NewXoroshiroPair(uint64(words[0]), uint64(words[1]))
 	} else {
 		rng = randomsource.NewNamedSequence(s.seedBase, key, s.includeID)
 	}
-	drops := rollLeafDrops(name, rng)
+	if err := roll(rng); err != nil {
+		return err
+	}
 	lo, hi := rng.State()
 	entry["source"] = nbt.Tag{Type: nbt.LongArray, Value: []int64{int64(lo), int64(hi)}}
 	s.streams[key] = nbt.Tag{Type: nbt.Compound, Value: entry}
 	s.dirty = true
-	return drops, nil
+	return nil
 }
 
 func rollLeafDrops(name string, rng *randomsource.Xoroshiro) []leafDrop {

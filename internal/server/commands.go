@@ -369,7 +369,7 @@ func (s *Server) commandWeather(args []string) string {
 }
 
 func (s *Server) commandGameRule(args []string) string {
-	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule <doDaylightCycle|doWeatherCycle|doMobSpawning|doFireTick> [true|false] | /gamerule snowAccumulationHeight [height]"
+	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule <doDaylightCycle|doWeatherCycle|doMobSpawning|doFireTick|mobGriefing|mobExplosionDropDecay|doTileDrops> [true|false] | /gamerule snowAccumulationHeight [height]"
 	if len(args) < 1 || len(args) > 2 {
 		return usage
 	}
@@ -387,10 +387,13 @@ func (s *Server) commandGameRule(args []string) string {
 		}
 		return fmt.Sprintf("Gamerule %s is now set to: %d", rule, height)
 	}
-	if rule == "doWeatherCycle" || rule == "doDaylightCycle" || rule == "doMobSpawning" || rule == "doFireTick" {
+	explosion := rule == "mobGriefing" || rule == "mobExplosionDropDecay" || rule == "doTileDrops"
+	if explosion || rule == "doWeatherCycle" || rule == "doDaylightCycle" || rule == "doMobSpawning" || rule == "doFireTick" {
 		if len(args) == 1 {
 			var enabled bool
-			if rule == "doWeatherCycle" {
+			if explosion {
+				enabled = s.World.ExplosionRule(rule)
+			} else if rule == "doWeatherCycle" {
 				enabled = s.World.WeatherCycle()
 			} else if rule == "doMobSpawning" {
 				enabled = s.World.MobSpawning()
@@ -407,7 +410,9 @@ func (s *Server) commandGameRule(args []string) string {
 		s.worldClockMu.Lock()
 		defer s.worldClockMu.Unlock()
 		set := s.World.SetDaylightCycle
-		if rule == "doWeatherCycle" {
+		if explosion {
+			set = func(enabled bool) error { return s.World.SetExplosionRule(rule, enabled) }
+		} else if rule == "doWeatherCycle" {
 			set = s.World.SetWeatherCycle
 		} else if rule == "doMobSpawning" {
 			set = s.World.SetMobSpawning
