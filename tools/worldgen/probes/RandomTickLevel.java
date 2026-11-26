@@ -89,6 +89,7 @@ public final class RandomTickLevel extends aqu {
     private List<String> additions;
     private cho horse;
     private String horseDefaults;
+    private boolean captureFireWrites;
     @Override public ka H_() { return registry; }
     @Override public bqp d_(jd p) { return dimension == null ? new bqp(bqo.a,0,0,0) : super.d_(p); }
     @Override public boolean B(jd p) { return inside(p); }
@@ -106,6 +107,96 @@ public final class RandomTickLevel extends aqu {
     }
 
     public String horseDefaults() { return horseDefaults; }
+
+    @Override public List<aqv> a(java.util.function.Predicate<? super aqv> filter) { return List.of(); }
+    @Override public boolean b(int cx,int cz) { return cx==CX && cz==CZ; }
+
+    public static Map<String,int[]> fireOdds() throws Exception {
+        var ignite = diy.class.getDeclaredMethod("o",dtc.class);
+        var burn = diy.class.getDeclaredMethod("n",dtc.class);
+        ignite.setAccessible(true); burn.setAccessible(true);
+        Map<String,int[]> result = new TreeMap<>();
+        for (dfy block : lt.e) {
+            int i=(int)ignite.invoke(dga.cr,block.o()), b=(int)burn.invoke(dga.cr,block.o());
+            if (i!=0 || b!=0) result.put(lt.e.b(block).toString(),new int[]{i,b});
+        }
+        return result;
+    }
+
+    public List<Map<String,Object>> fireCases(ka registries) throws Exception {
+        captureFireWrites = true;
+        // blocks/fire has zero loot pools in 1.21.1. Water still runs the
+        // original destruction and flow callbacks in this level without a loot manager.
+        field(dtb.class,"aQ").set(dga.cr,ern.a);
+        registry = registries;
+        dimension = registries.d(lu.aK).a(akr.a("minecraft:overworld"));
+        List<Map<String,Object>> cases = new ArrayList<>();
+        for (String name : List.of("peaceful", "easy", "normal", "hard", "visual", "disabled",
+                                 "switch_rule", "soul_sand", "soul_soil", "unsupported", "side", "wet_leaves", "water",
+                                 "rain_ticks","fuel_ticks","paused_ticks","three_flashes")) {
+            reset();
+            difficulty = switch(name) {case "peaceful" -> bqo.a; case "easy" -> bqo.b; case "hard" -> bqo.d; default -> bqo.c;};
+            boolean visual = name.equals("visual");
+            boolean enabled = !name.equals("disabled") && !name.equals("switch_rule");
+            weatherRules = new dcs();
+            weatherRules.a(dcs.b).a(enabled,(net.minecraft.server.MinecraftServer)null);
+            rainy=name.equals("rain_ticks"); light=15;
+            biome=registries.d(lu.aF).c(akr.a("minecraft:plains")).orElseThrow();
+            long worldSeed = rainy ? 2 : 95;
+            field(dcw.class,"z").set(this,new dyz(worldSeed));
+            for (int x=-1;x<=1;x++) for (int y=-1;y<=1;y++) for (int z=-1;z<=1;z++) {
+                dtc state = block("air");
+                if (y==-1 && !List.of("side","wet_leaves","unsupported").contains(name))
+                    state = block(name.startsWith("soul_") ? name : "stone");
+                if (x==0 && y==0 && z==0 && name.equals("water")) state = block("water");
+                if (x==1 && y==0 && z==0 && name.equals("side")) state = block("oak_planks");
+                if (x==1 && y==0 && z==0 && name.equals("wet_leaves")) state = block("oak_leaves").a(dts.C,true);
+                if (name.equals("fuel_ticks") && y==-1) state=block("oak_planks");
+                initial(CENTER.b(x,y,z),state);
+            }
+            Map<String,Object> result = scene(name,false);
+            result.put("worldSeed",worldSeed);
+            result.put("difficulty",difficulty.a()); result.put("visual",visual);
+            long seed = name.equals("three_flashes") ? 6 : 7;
+            var rng = new dyz(seed);
+            btm bolt = bsx.am.a(this);
+            field(bsr.class,"ah").set(bolt,rng);
+            bolt.b=rng.g();
+            field(btm.class,"g").setInt(bolt,1+rng.a(3));
+            bolt.a(visual); bolt.e(CENTER.u()+.5,CENTER.v()+.5,CENTER.w()+.5);
+            result.put("seed",seed); result.put("position",new double[]{bolt.dt(),bolt.dv(),bolt.dz()});
+            List<Object> ticks = new ArrayList<>();
+            boolean scheduled=name.endsWith("_ticks");
+            for (time=1;time<=(scheduled?120:40);time++) {
+                boolean clearCenter = name.equals("three_flashes") && a_(CENTER).a(dga.cr);
+                if (clearCenter) a(CENTER,block("air"),3);
+                if (name.equals("switch_rule") && time==2) {enabled=true;weatherRules.a(dcs.b).a(true,(net.minecraft.server.MinecraftServer)null);}
+                if (name.equals("paused_ticks") && (time==2 || time==65)) {
+                    enabled=time==65;
+                    weatherRules.a(dcs.b).a(enabled,(net.minecraft.server.MinecraftServer)null);
+                }
+                blockTicks.a(time,65536,(pos,block)->{
+                    dtc state=a_(pos);
+                    if (state.a(block)) state.a(this,pos,z);
+                });
+                fluidTicks.a(time,65536,(pos,fluid)->{
+                    epe state=b_(pos);
+                    if (state.b(fluid)) state.a(this,pos);
+                });
+                if (!bolt.dJ()) bolt.l();
+                var row = new LinkedHashMap<String,Object>();
+                if (clearCenter) row.put("clearCenter",true);
+                row.put("enabled",enabled); row.put("fires",tracked.stream().filter(p->a_(p).a(dga.cr)||a_(p).a(dga.cs)).map(p->cell(p,a_(p))).toList());
+                row.put("boltRNG",rawState(rng)); row.put("worldRNG",rawState((dyz)z));
+                row.put("life",field(btm.class,"f").getInt(bolt)); row.put("flashes",field(btm.class,"g").getInt(bolt));
+                row.put("removed",bolt.dJ()); ticks.add(row);
+                if (bolt.dJ() && !scheduled) break;
+            }
+            result.put("ticks",ticks); cases.add(result);
+        }
+        captureFireWrites = false;
+        return cases;
+    }
 
     public String skeletonDefaults() throws Exception {
         ub data = bsx.aN.a(this).f(new ub());
@@ -231,7 +322,8 @@ public final class RandomTickLevel extends aqu {
     @Override public boolean a(jd pos, dtc state, int flags) {
         dtc old = put(pos, state);
         if (old == state) return false;
-        if (!tracked.contains(pos)) throw new IllegalStateException("untracked block change " + pos);
+        if (captureFireWrites) tracked.add(pos.j());
+        else if (!tracked.contains(pos)) throw new IllegalStateException("untracked block change " + pos);
         if (old.b() != state.b()) state.a(this, pos, old, false);
         // Run the original neighbor shape callbacks after onPlace.
         state.a(this, pos, flags & ~33);

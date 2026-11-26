@@ -369,7 +369,7 @@ func (s *Server) commandWeather(args []string) string {
 }
 
 func (s *Server) commandGameRule(args []string) string {
-	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule <doDaylightCycle|doWeatherCycle|doMobSpawning> [true|false] | /gamerule snowAccumulationHeight [height]"
+	const usage = "Usage: /gamerule spawnChunkRadius [0..32] | /gamerule <doDaylightCycle|doWeatherCycle|doMobSpawning|doFireTick> [true|false] | /gamerule snowAccumulationHeight [height]"
 	if len(args) < 1 || len(args) > 2 {
 		return usage
 	}
@@ -387,13 +387,15 @@ func (s *Server) commandGameRule(args []string) string {
 		}
 		return fmt.Sprintf("Gamerule %s is now set to: %d", rule, height)
 	}
-	if rule == "doWeatherCycle" || rule == "doDaylightCycle" || rule == "doMobSpawning" {
+	if rule == "doWeatherCycle" || rule == "doDaylightCycle" || rule == "doMobSpawning" || rule == "doFireTick" {
 		if len(args) == 1 {
 			var enabled bool
 			if rule == "doWeatherCycle" {
 				enabled = s.World.WeatherCycle()
 			} else if rule == "doMobSpawning" {
 				enabled = s.World.MobSpawning()
+			} else if rule == "doFireTick" {
+				enabled = s.World.FireTick()
 			} else {
 				_, _, enabled = s.World.TimeState()
 			}
@@ -409,6 +411,8 @@ func (s *Server) commandGameRule(args []string) string {
 			set = s.World.SetWeatherCycle
 		} else if rule == "doMobSpawning" {
 			set = s.World.SetMobSpawning
+		} else if rule == "doFireTick" {
+			set = s.World.SetFireTick
 		}
 		if err := set(args[1] == "true"); err != nil {
 			return err.Error()

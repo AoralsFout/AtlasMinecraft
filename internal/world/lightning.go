@@ -25,10 +25,11 @@ var entitySizes = func() map[string][2]float32 {
 const LightningEntity = "minecraft:lightning_bolt"
 
 type lightningBolt struct {
-	entity        WorldEntity
-	visualOnly    bool
-	life, flashes int32
-	random        *worldgen.LegacyRandom
+	entity             WorldEntity
+	visualOnly         bool
+	firstFireAttempted bool // retrying a failed rod update must not resample the first flash
+	life, flashes      int32
+	random             *worldgen.LegacyRandom
 }
 
 // Only the topmost non-air block in a column can be a lightning rod POI.
@@ -228,7 +229,7 @@ func (w *World) tickLightning(eligible func(int32, int32) bool) error {
 	var failures []error
 	for _, bolt := range w.bolts {
 		xyz := bolt.entity.Position
-		p := worldgen.FeaturePosition{X: int32(math.Floor(xyz[0])), Y: int32(math.Floor(xyz[1]-1e-6)), Z: int32(math.Floor(xyz[2]))}
+		p := worldgen.FeaturePosition{X: int32(math.Floor(xyz[0])), Y: int32(math.Floor(xyz[1] - 1e-6)), Z: int32(math.Floor(xyz[2]))}
 		if !eligible(p.X>>4, p.Z>>4) {
 			if w.scheduledTicks.neighborhoodLoaded(p.X>>4, p.Z>>4, 0) {
 				live = append(live, bolt)
@@ -236,6 +237,14 @@ func (w *World) tickLightning(eligible func(int32, int32) bool) error {
 			continue
 		}
 		if bolt.life == 2 {
+			if !bolt.firstFireAttempted {
+				bolt.firstFireAttempted = true
+				if w.baseDifficulty() >= 2 {
+					if err := r.lightningFire(bolt, 4); err != nil {
+						failures = append(failures, err)
+					}
+				}
+			}
 			if err := r.powerLightningRod(p); err != nil {
 				failures = append(failures, err)
 				live = append(live, bolt)
@@ -251,6 +260,9 @@ func (w *World) tickLightning(eligible func(int32, int32) bool) error {
 				bolt.flashes--
 				bolt.life = 1
 				bolt.random.NextLong()
+				if err := r.lightningFire(bolt, 0); err != nil {
+					failures = append(failures, err)
+				}
 			}
 		}
 		live = append(live, bolt)

@@ -261,6 +261,11 @@ func (r *fluidRuntime) set(p worldgen.FeaturePosition, s worldgen.SurfaceBlockSt
 		return err
 	}
 	// LevelChunk calls onPlace even for another state of the same liquid.
+	if before.Name != s.Name && (s.Name == "minecraft:fire" || s.Name == "minecraft:soul_fire") {
+		if err := r.onFirePlaced(p, s); err != nil {
+			return err
+		}
+	}
 	if err := worldgen.NotifyFallingBlockPlacement(r, p, s); err != nil {
 		return err
 	}

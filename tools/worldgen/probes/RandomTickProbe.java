@@ -45,6 +45,10 @@ public final class RandomTickProbe {
         }
         out.println("horse " + type.getMethod("horseDefaults").invoke(world));
         out.println("skeleton " + type.getMethod("skeletonDefaults").invoke(world));
+        out.println("fireOdds " + gson.toJson(type.getMethod("fireOdds").invoke(null)));
+        for (Object row : (List<?>) type.getMethod("fireCases",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
+            out.println("fire " + gson.toJson(row));
+        }
         out.flush();
     }
 }

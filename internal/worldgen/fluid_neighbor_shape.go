@@ -6,6 +6,33 @@ import "strconv"
 // and falling-block updates, and reuses the existing structure block shapes.
 // Redstone and other delayed families still need their scheduled handlers.
 func UpdateFluidNeighborShape(world FeatureBlockWorld, p FeaturePosition, state SurfaceBlockState, face int, neighbor SurfaceBlockState) (SurfaceBlockState, error) {
+	if state.Name == "minecraft:soul_fire" {
+		below := neighbor
+		if face != 0 {
+			var err error
+			below, err = world.BlockAt(directionPosition(p, 0))
+			if err != nil {
+				return state, err
+			}
+		}
+		if below.Name != "minecraft:soul_soil" && below.Name != "minecraft:soul_sand" {
+			return structureState("air"), nil
+		}
+		return state, nil
+	}
+	if state.Name == "minecraft:fire" {
+		fire, supported, err := FirePlacement(world, p)
+		if err != nil {
+			return state, err
+		}
+		if !supported {
+			return structureState("air"), nil
+		}
+		if age := state.Properties["age"]; fire.Name == state.Name && age != "" {
+			fire = stateWithProperty(fire, "age", age)
+		}
+		return fire, nil
+	}
 	direction := [6]string{"down", "up", "north", "south", "west", "east"}[face]
 	if direction == "up" {
 		if _, ok := state.Properties["snowy"]; ok {

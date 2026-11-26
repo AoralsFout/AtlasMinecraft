@@ -36,6 +36,7 @@ type World struct {
 	daylightStopped bool                  // guarded by the clock owner's stateMu
 	weatherStopped  bool
 	mobsDisabled    bool
+	fireTickStopped bool
 	levels          WeatherLevels
 	snowHeight      int32
 	seed            int64
@@ -105,6 +106,7 @@ func newWorld(hub HubView, genWorkers int, store *Store, meta worldMeta) *World 
 	w.daylightStopped = !strings.EqualFold(w.gameRule("doDaylightCycle", "true"), "true")
 	w.weatherStopped = !strings.EqualFold(w.gameRule("doWeatherCycle", "true"), "true")
 	w.mobsDisabled = !strings.EqualFold(w.gameRule("doMobSpawning", "true"), "true")
+	w.fireTickStopped = !strings.EqualFold(w.gameRule("doFireTick", "true"), "true")
 	height, err := strconv.ParseInt(w.gameRule("snowAccumulationHeight", "1"), 10, 32)
 	if err != nil {
 		height = 1

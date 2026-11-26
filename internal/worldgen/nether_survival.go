@@ -5,7 +5,6 @@ import (
 	"atlas/internal/blockstate"
 	_ "embed"
 	"encoding/base64"
-	"fmt"
 	"strings"
 )
 
@@ -26,6 +25,59 @@ var fireBurnableStates = func() []byte {
 	return bits
 }()
 
+func fireCanBurn(state SurfaceBlockState) (bool, error) {
+	id, err := blockstate.BlockStateID(state.Name, state.Properties)
+	if err != nil {
+		return false, err
+	}
+	return fireBurnableStates[id/8]&(1<<uint(id%8)) != 0, nil
+}
+
+// FirePlacement returns BaseFireBlock.getState and whether it can survive.
+// With neither a solid nor a combustible floor, fire attaches to each
+// combustible side and ceiling. Waterlogging affects the individual state.
+func FirePlacement(world FeatureBlockWorld, p FeaturePosition) (SurfaceBlockState, bool, error) {
+	fire := SurfaceBlockState{Name: "minecraft:fire"}
+	below, err := world.BlockAt(directionPosition(p, 0))
+	if err != nil {
+		return fire, false, err
+	}
+	if below.Name == "minecraft:soul_sand" || below.Name == "minecraft:soul_soil" {
+		return SurfaceBlockState{Name: "minecraft:soul_fire"}, true, nil
+	}
+	id, err := blockstate.BlockStateID(below.Name, below.Properties)
+	if err != nil {
+		return fire, false, err
+	}
+	rule, err := blockrules.Lookup(id)
+	if err != nil {
+		return fire, false, err
+	}
+	if rule.FaceSturdy[1] || fireBurnableStates[id/8]&(1<<uint(id%8)) != 0 {
+		return fire, true, nil
+	}
+	for face, property := range []string{"", "up", "north", "south", "west", "east"} {
+		if face == 0 {
+			continue
+		}
+		state, err := world.BlockAt(directionPosition(p, face))
+		if err != nil {
+			return fire, false, err
+		}
+		attaches, err := fireCanBurn(state)
+		if err != nil {
+			return fire, false, err
+		}
+		if attaches {
+			if fire.Properties == nil {
+				fire.Properties = make(map[string]string)
+			}
+			fire.Properties[property] = "true"
+		}
+	}
+	return fire, len(fire.Properties) > 0, nil
+}
+
 func featureFireSurvives(world FeatureBlockWorld, p FeaturePosition, below SurfaceBlockState) (bool, error) {
 	id, err := blockstate.BlockStateID(below.Name, below.Properties)
 	if err != nil {
@@ -43,14 +95,11 @@ func featureFireSurvives(world FeatureBlockWorld, p FeaturePosition, below Surfa
 		if err != nil {
 			return false, err
 		}
-		id, err := blockstate.BlockStateID(s.Name, s.Properties)
+		burnable, err := fireCanBurn(s)
 		if err != nil {
 			return false, err
 		}
-		if int(id) >= 26684 {
-			return false, fmt.Errorf("invalid fire neighbor state %d", id)
-		}
-		if fireBurnableStates[id/8]&(1<<uint(id%8)) != 0 {
+		if burnable {
 			return true, nil
 		}
 	}

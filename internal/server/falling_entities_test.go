@@ -61,6 +61,23 @@ func TestSkeletonTrapSpawnPacketsAndGameRule(t *testing.T) {
 	check(distant, []int32{64})
 }
 
+func TestFireTickGameRuleAcrossDimensions(t *testing.T) {
+	s, _, _ := dimensionTestServer(t)
+	if got := s.commandGameRule([]string{"doFireTick"}); got != "Gamerule doFireTick is currently set to: true" {
+		t.Fatal(got)
+	}
+	for _, value := range []string{"false", "true"} {
+		if got := s.commandGameRule([]string{"doFireTick", value}); got != "Gamerule doFireTick is now set to: "+value {
+			t.Fatal(got)
+		}
+		for _, w := range s.Worlds() {
+			if w.FireTick() != (value == "true") {
+				t.Fatalf("%s did not apply doFireTick=%s", w.DimensionName(), value)
+			}
+		}
+	}
+}
+
 func TestLightningTrackingMatchesVanillaSpawnAndRemoval(t *testing.T) {
 	s, first := interactionServer(t)
 	first.SetPlayReady(true)

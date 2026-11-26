@@ -156,6 +156,22 @@ func (w *World) updateBlockNeighbors(changed []BlockPosition) error {
 			if target == p {
 				changedState = s
 			}
+			if s.Name == "minecraft:fire" || s.Name == "minecraft:soul_fire" {
+				if target == p {
+					err = runtime.onFirePlaced(position, s)
+				} else {
+					face := oppositeFace(fluidShapeOrder[index-1])
+					var after worldgen.SurfaceBlockState
+					after, err = worldgen.UpdateFluidNeighborShape(runtime, position, s, face, changedState)
+					if err == nil {
+						err = runtime.SetFluidBlock(position, after, 3)
+					}
+				}
+				if err != nil && !errors.Is(err, ErrChunkNotLoaded) {
+					return err
+				}
+				continue
+			}
 			if liquidBlock(s) {
 				err = worldgen.NotifyLiquidBlock(runtime, position, s, runtime.settings)
 				if errors.Is(err, ErrChunkNotLoaded) {

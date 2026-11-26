@@ -63,6 +63,14 @@ func TickScheduledBlock(world ScheduledBlockWorld, p FeaturePosition, name strin
 		return buttonWorld.NotifyButtonNeighbors(p, state)
 	}
 	switch blockTickHandlers[name] {
+	case "diy":
+		fire, ok := world.(interface {
+			TickFire(FeaturePosition, SurfaceBlockState) error
+		})
+		if !ok {
+			return fmt.Errorf("fire tick requires weather and world randomness")
+		}
+		return fire.TickFire(p, state)
 	case "dkn":
 		updates, ok := world.(interface {
 			NotifyRodSupport(FeaturePosition, SurfaceBlockState) error

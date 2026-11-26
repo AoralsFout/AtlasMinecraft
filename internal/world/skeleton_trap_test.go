@@ -102,7 +102,9 @@ func TestSkeletonTrapTicksAgainstVanilla(t *testing.T) {
 				}
 				var added []string
 				var lastHorse *WorldEntity
-				chunks := TickChunks{Blocks: center, Random: center, Entities: center, lightningAdded: func(bolt WorldEntity, horse *WorldEntity) {
+				// This reference stops at ServerLevel.tickChunk, before ticking the
+				// newly inserted bolt. Fire placement later draws from the level RNG.
+				chunks := TickChunks{Blocks: center, Random: center, lightningAdded: func(bolt WorldEntity, horse *WorldEntity) {
 					if horse != nil {
 						added = append(added, horse.Type)
 						lastHorse = horse

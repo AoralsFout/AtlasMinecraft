@@ -23,6 +23,8 @@ def main():
     cases = []
     lightning = []
     traps = []
+    fires = []
+    fire_odds = {}
     horse = None
     skeleton = None
     precipitation = []
@@ -37,6 +39,10 @@ def main():
             lightning.append(json.loads(line[10:]))
         elif line.startswith(b'trap '):
             traps.append(json.loads(line[5:]))
+        elif line.startswith(b'fire '):
+            fires.append(json.loads(line[5:]))
+        elif line.startswith(b'fireOdds '):
+            fire_odds = json.loads(line[8:])
         elif line.startswith(b'horse '):
             horse = bytes.fromhex(line[6:].decode())
         elif line.startswith(b'skeleton '):
@@ -48,18 +54,20 @@ def main():
     if len(lightning) != 2 or len(sizes) != 130 or len(precipitation) != 13 or len(cases) != 26 or flags is None or len(flags) != 26684:
         raise RuntimeError('Incomplete original random tick capture')
     # One tick per line keeps individual state changes inspectable in diffs.
-    lines = ['{"version":"1.21.1","cases":[']
-
     def dump(value):
         return json.dumps(value, separators=(',', ':'))
 
-    for index, case in enumerate(cases):
-        ticks = case.pop('ticks')
-        lines.append(dump(case)[:-1] + ',"ticks":[')
-        lines.extend(dump(tick) + (',' if i + 1 < len(ticks) else '') for i, tick in enumerate(ticks))
-        lines.append(']}' + (',' if index + 1 < len(cases) else ''))
-    lines.append(']}')
+    def trajectories(scenes, start='[', end=']'):
+        lines = [start]
+        for index, scene in enumerate(scenes):
+            header = {key: value for key, value in scene.items() if key != 'ticks'}
+            lines.append(dump(header)[:-1] + ',"ticks":[')
+            lines.append(',\n'.join(map(dump, scene['ticks'])))
+            lines.append(']}' + (',' if index + 1 < len(scenes) else ''))
+        return ('\n'.join([*lines, end]) + '\n').encode()
     payloads = {
+        'internal/world/fire_odds_1.21.1.json': (json.dumps(fire_odds, separators=(',', ':')) + '\n').encode(),
+        'testdata/worldgen/lightning_fire_1.21.1.json': trajectories(fires),
         'testdata/worldgen/skeleton_traps_1.21.1.json': ('[\n' + ',\n'.join(map(dump, traps)) + '\n]\n').encode(),
         'internal/world/skeleton_trap_1.21.1.bin': horse,
         'internal/world/skeleton_rider_1.21.1.bin': skeleton,
@@ -67,9 +75,9 @@ def main():
         'testdata/worldgen/lightning_1.21.1.json': ('[\n' + ',\n'.join(map(dump, lightning)) + '\n]\n').encode(),
         'internal/world/entity_sizes_1.21.1.json': (json.dumps(sizes, indent=None, separators=(',', ':')) + '\n').encode(),
         'internal/world/random_tick_states_1.21.1.bin': flags,
-        'testdata/worldgen/random_ticks_1.21.1.json': ('\n'.join(lines) + '\n').encode(),
+        'testdata/worldgen/random_ticks_1.21.1.json': trajectories(cases, '{"version":"1.21.1","cases":[', ']}'),
     }
-    if len(traps) != 11 or not horse or not skeleton:
+    if len(traps) != 11 or not horse or not skeleton or len(fires) != 17 or not fire_odds:
         raise RuntimeError('Incomplete original skeleton trap capture')
     for name, data in payloads.items():
         path = common.ROOT / name
@@ -80,7 +88,7 @@ def main():
                 raise RuntimeError(f'Original random tick reference changed: {name}')
         else:
             common.atomic_write(path, data)
-    print(f'{"Checked" if args.check else "Published"} {len(cases)} random-tick cases, {len(precipitation)} precipitation cases, {len(lightning)} lightning cases, {len(traps)} skeleton trap cases and {len(flags)} state flags')
+    print(f'{"Checked" if args.check else "Published"} {len(cases)} random-tick cases, {len(precipitation)} precipitation cases, {len(lightning)} lightning cases, {len(traps)} skeleton trap cases, {len(fires)} fire cases and {len(flags)} state flags')
 
 
 if __name__ == '__main__':
