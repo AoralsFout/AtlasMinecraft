@@ -35,6 +35,7 @@ type World struct {
 	clockSource     atomic.Pointer[World] // Registered dimensions read the Overworld clock.
 	daylightStopped bool                  // guarded by the clock owner's stateMu
 	weatherStopped  bool
+	mobsDisabled    bool
 	levels          WeatherLevels
 	snowHeight      int32
 	seed            int64
@@ -57,6 +58,8 @@ type World struct {
 	fallingEntities fallingEntityOrder
 	simulation      atomic.Pointer[simulationTickets]
 	simulationWake  chan struct{}
+
+	lastInhabitedUpdate int64 // ServerChunkCache clock, under blockUpdateMu
 
 	forced            forcedChunks          // guarded by blockUpdateMu
 	portalTicks       map[ChunkPosition]int // remaining ticket lifetime, guarded by blockUpdateMu
@@ -101,6 +104,7 @@ func newWorld(hub HubView, genWorkers int, store *Store, meta worldMeta) *World 
 	w.randomSequences = &lootSequences{}
 	w.daylightStopped = !strings.EqualFold(w.gameRule("doDaylightCycle", "true"), "true")
 	w.weatherStopped = !strings.EqualFold(w.gameRule("doWeatherCycle", "true"), "true")
+	w.mobsDisabled = !strings.EqualFold(w.gameRule("doMobSpawning", "true"), "true")
 	height, err := strconv.ParseInt(w.gameRule("snowAccumulationHeight", "1"), 10, 32)
 	if err != nil {
 		height = 1

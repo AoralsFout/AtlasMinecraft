@@ -44,6 +44,7 @@ type chunkScheduledTicks struct {
 	postSections            int
 	revision, savedRevision uint64
 	savedTime               int64
+	inhabitedTime           int64
 	activationRetry         int64
 	fallingRecovery         bool
 	dropRecovery            bool
@@ -81,6 +82,7 @@ func parseScheduledFluid(name string) (worldgen.FluidType, bool) {
 func (o *scheduledTickOwner) register(c *Chunk) *chunkScheduledTicks {
 	root, _ := c.anvilRoot.Object()
 	h := &chunkScheduledTicks{owner: o, x: c.cx, z: c.cz, queue: tickqueue.NewChunk(tickqueue.DecodeSavedNBT(root["fluid_ticks"], c.cx, c.cz, parseScheduledFluid))}
+	h.inhabitedTime, _ = root.Number("InhabitedTime")
 	for si, section := range c.sect {
 		if section != nil {
 			h.publishSection(si, section)
@@ -132,7 +134,7 @@ func (o *scheduledTickOwner) recoveryChunks(falling bool) []chunkKey {
 	return keys
 }
 
-func (h *chunkScheduledTicks) snapshot() (nbt.Tag, nbt.Tag, nbt.Tag, uint64, int64) {
+func (h *chunkScheduledTicks) snapshot() (nbt.Tag, nbt.Tag, nbt.Tag, uint64, int64, int64) {
 	o := h.owner
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -155,7 +157,7 @@ func (h *chunkScheduledTicks) snapshot() (nbt.Tag, nbt.Tag, nbt.Tag, uint64, int
 		}
 		post = nbt.Tag{Type: nbt.List, ListType: elementType, Value: sections}
 	}
-	return tickqueue.EncodeSavedNBT(saved, func(kind worldgen.FluidType) string { return kind.String() }), tickqueue.EncodeSavedNBT(blocks, func(name string) string { return name }), post, h.revision, o.now
+	return tickqueue.EncodeSavedNBT(saved, func(kind worldgen.FluidType) string { return kind.String() }), tickqueue.EncodeSavedNBT(blocks, func(name string) string { return name }), post, h.revision, o.now, h.inhabitedTime
 }
 
 // Called with the owner's lock held; all returned entries are detached.

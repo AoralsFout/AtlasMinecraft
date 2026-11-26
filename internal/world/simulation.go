@@ -92,11 +92,11 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 
 // TickServerPlayers advances the clock for the Overworld and runs each
 // derived dimension's queues at the same age. The server ticks Overworld first.
-func (w *World) TickServerPlayers(players []SimulationPlayer, distance int32, publish WeatherPublisher, lightningAdded func(WorldEntity)) error {
+func (w *World) TickServerPlayers(players []SimulationPlayer, distance int32, publish WeatherPublisher, lightningAdded func(bolt WorldEntity, trap *WorldEntity)) error {
 	return w.tickPlayers(players, distance, true, publish, lightningAdded)
 }
 
-func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTick bool, publish WeatherPublisher, lightningAdded func(WorldEntity)) error {
+func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTick bool, publish WeatherPublisher, lightningAdded func(bolt WorldEntity, trap *WorldEntity)) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
 	w.simulationPlayers = append(w.simulationPlayers[:0], players...)

@@ -12,7 +12,7 @@ type TickChunks struct {
 	Blocks         func(x, z int32) bool // Scheduled blocks and fluids.
 	Random         func(x, z int32) bool // Random block and fluid ticks.
 	publishWeather WeatherPublisher
-	lightningAdded func(WorldEntity)
+	lightningAdded func(bolt WorldEntity, trap *WorldEntity)
 	Entities       func(x, z int32) bool
 }
 
@@ -68,12 +68,15 @@ func (w *World) tickLocked(chunks TickChunks, live, serverTick bool) error {
 	if live {
 		w.tickPortalTicketsLocked()
 	}
+	now, _ := w.Time()
+	elapsed := now - w.lastInhabitedUpdate
+	w.lastInhabitedUpdate = now
 	if chunks.Random != nil {
 		if runtime == nil {
 			runtime = &fluidRuntime{world: w, settings: w.fluidSettings()}
 		}
 		runtime.lightningAdded = chunks.lightningAdded
-		if err := runtime.tickRandomChunks(chunks); err != nil {
+		if err := runtime.tickRandomChunks(chunks, elapsed); err != nil {
 			failure = errors.Join(failure, fmt.Errorf("random ticks: %w", err))
 			if !live {
 				return failure

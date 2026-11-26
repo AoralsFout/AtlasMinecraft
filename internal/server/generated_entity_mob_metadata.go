@@ -27,7 +27,7 @@ var generatedVillagerProfessions = map[string]int32{
 func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 	switch entity.Type {
 	case "minecraft:witch", "minecraft:cat", "minecraft:villager", "minecraft:zombie_villager",
-		"minecraft:sheep", "minecraft:pig", "minecraft:chicken", "minecraft:cow", "minecraft:horse", "minecraft:donkey",
+		"minecraft:sheep", "minecraft:pig", "minecraft:chicken", "minecraft:cow", "minecraft:horse", world.SkeletonHorseEntity, "minecraft:donkey",
 		"minecraft:armadillo", "minecraft:fox", "minecraft:frog", "minecraft:goat", "minecraft:llama", "minecraft:mooshroom", "minecraft:panda", "minecraft:parrot", "minecraft:polar_bear", "minecraft:rabbit", "minecraft:turtle", "minecraft:wolf", "minecraft:piglin", "minecraft:piglin_brute", "minecraft:hoglin", "minecraft:drowned", "minecraft:allay", "minecraft:iron_golem", "minecraft:shulker", "minecraft:camel":
 	default:
 		return nil
@@ -67,7 +67,7 @@ func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 			w.U8(17).VarInt(8).Bool(true)
 		}
 	}
-	if entity.Type == "minecraft:horse" || entity.Type == "minecraft:donkey" || entity.Type == "minecraft:llama" {
+	if entity.Type == "minecraft:horse" || entity.Type == world.SkeletonHorseEntity || entity.Type == "minecraft:donkey" || entity.Type == "minecraft:llama" {
 		var flags byte
 		if tame, _ := entity.Data.Number("Tame"); tame != 0 {
 			flags |= 2

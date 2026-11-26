@@ -50,12 +50,18 @@ func tickingEntityType(name string) bool {
 	return name == fallingBlockEntity || name == world.LightningEntity
 }
 
-func lightningInRange(p *player.Player, entity world.WorldEntity) bool {
-	if entity.Type != world.LightningEntity {
+func weatherEntityInRange(p *player.Player, entity world.WorldEntity) bool {
+	var distance float64
+	switch entity.Type {
+	case world.LightningEntity:
+		distance = 16 * 16
+	case world.SkeletonHorseEntity:
+		distance = 10 * 16
+	default:
 		return true
 	}
 	x, _, z, _, _, _ := p.Pos()
-	return math.Abs(x-entity.Position[0]) <= 16*16 && math.Abs(z-entity.Position[2]) <= 16*16
+	return math.Abs(x-entity.Position[0]) <= distance && math.Abs(z-entity.Position[2]) <= distance
 }
 
 func tickingSpawnPayload(id int32, entity world.WorldEntity) []byte {
@@ -98,7 +104,7 @@ func (s *Server) publishTickingEntities(w *world.World, players []*player.Player
 				continue
 			}
 			if entity, ok := live[key.uuid]; ok {
-				if x, z := fallingChunk(entity); sink.IsChunkSent(x, z) && lightningInRange(p, entity) {
+				if x, z := fallingChunk(entity); sink.IsChunkSent(x, z) && weatherEntityInRange(p, entity) {
 					continue
 				}
 			}
@@ -112,7 +118,7 @@ func (s *Server) publishTickingEntities(w *world.World, players []*player.Player
 		}
 		for _, entity := range snapshots {
 			cx, cz := fallingChunk(entity)
-			if !sink.IsChunkSent(cx, cz) || !lightningInRange(p, entity) {
+			if !sink.IsChunkSent(cx, cz) || !weatherEntityInRange(p, entity) {
 				continue
 			}
 			key := generatedEntityKey{dimension, entity.UUID}
@@ -172,7 +178,7 @@ func (s *Server) publishLightningSpawn(players []*player.Player, dimension strin
 	delivered := make(map[*player.Player]*player.WorldSink)
 	for _, p := range players {
 		sink := p.WorldPacketSinkInDimension(dimension)
-		if sink != nil && p.PlayReady() && lightningInRange(p, entity) && sink.SendPacketsInChunk(cx, cz, packet) {
+		if sink != nil && p.PlayReady() && weatherEntityInRange(p, entity) && sink.SendPacketsInChunk(cx, cz, packet) {
 			delivered[p] = sink
 		}
 	}

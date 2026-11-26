@@ -59,7 +59,7 @@ func TestLightningChunkStreamAgainstVanilla(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := w.store.vanilla.saveGameRule("doMobSpawning", strconv.FormatBool(scene.MobSpawning), nil); err != nil {
+			if err := w.SetMobSpawning(scene.MobSpawning); err != nil {
 				t.Fatal(err)
 			}
 			w.levels = WeatherLevels{Rain: 1, Thunder: 1}

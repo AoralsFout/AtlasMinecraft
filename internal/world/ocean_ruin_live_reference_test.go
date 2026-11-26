@@ -64,7 +64,7 @@ func observeStructureRuntime(t *testing.T, w *World, x, z int32, fixture string)
 		if h == nil {
 			t.Fatal("missing live chunk owner")
 		}
-		fluid, block, _, _, _ := h.snapshot()
+		fluid, block, _, _, _, _ := h.snapshot()
 		for i, actual := range [2]nbt.Tag{block, fluid} {
 			raw, err := base64.StdEncoding.DecodeString(encoded[i])
 			if err != nil {

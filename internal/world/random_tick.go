@@ -84,7 +84,7 @@ func (w *World) gameRule(name, fallback string) string {
 	return fallback
 }
 
-func (r *fluidRuntime) tickRandomChunks(chunks TickChunks) error {
+func (r *fluidRuntime) tickRandomChunks(chunks TickChunks, elapsed int64) error {
 	w := r.world
 	if err := w.ensureTickRandom(); err != nil {
 		return err
@@ -109,6 +109,10 @@ func (r *fluidRuntime) tickRandomChunks(chunks TickChunks) error {
 	var failures []error
 	for _, h := range holders {
 		if chunks.Random(h.x, h.z) {
+			o.mu.Lock()
+			h.inhabitedTime += elapsed
+			h.revision++
+			o.mu.Unlock()
 			if err := r.randomTickChunk(h, int32(speed), nil); err != nil {
 				failures = append(failures, fmt.Errorf("chunk %d,%d: %w", h.x, h.z, err))
 			}

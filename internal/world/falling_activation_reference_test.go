@@ -41,7 +41,7 @@ func checkFrozenActivationTicks(t *testing.T, w *World, cx, cz int32) {
 	w.scheduledTicks.mu.Lock()
 	h := w.scheduledTicks.chunks[tickqueue.ChunkKey(cx, cz)]
 	w.scheduledTicks.mu.Unlock()
-	_, blocks, _, _, _ := h.snapshot()
+	_, blocks, _, _, _, _ := h.snapshot()
 	got := tickqueue.DecodeSavedNBT(blocks, cx, cz, func(name string) (string, bool) { return name, true })
 	if !slices.Equal(got, want) {
 		actual := map[tickqueue.Saved[string]]bool{}

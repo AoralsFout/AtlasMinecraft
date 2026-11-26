@@ -26,6 +26,7 @@ const LightningEntity = "minecraft:lightning_bolt"
 
 type lightningBolt struct {
 	entity        WorldEntity
+	visualOnly    bool
 	life, flashes int32
 	random        *worldgen.LegacyRandom
 }
@@ -167,26 +168,41 @@ func (r *fluidRuntime) naturalLightning(column worldgen.FeaturePosition) error {
 	if err != nil || !raining {
 		return err
 	}
-	if r.world.gameRule("doMobSpawning", "true") == "true" {
-		// The trap roll precedes the check for a rod below the target; it is
-		// part of the chunk RNG even when a horse cannot spawn on the rod.
-		r.world.tickRandom.NextDouble()
-	}
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
+	id, seed, err := newLightningUUID()
+	if err != nil {
 		return err
 	}
-	seed := int64(binary.LittleEndian.Uint64(id[:8]))
-	id[6] = id[6]&15 | 64
-	id[8] = id[8]&63 | 128
+	var horse *WorldEntity
+	if r.world.MobSpawning() && r.world.tickRandom.NextDouble() < float64(r.world.localDifficulty(p))*0.01 {
+		below := p
+		below.Y--
+		state, err := r.BlockAt(below)
+		if err != nil {
+			return err
+		}
+		if state.Name != "minecraft:lightning_rod" {
+			horse, err = r.spawnSkeletonTrap(p)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	rng := worldgen.NewLegacyRandom(seed)
 	rng.NextLong() // bolt's visual seed
 	entity := WorldEntity{Type: LightningEntity, UUID: id, Position: [3]float64{float64(p.X) + 0.5, float64(p.Y), float64(p.Z) + 0.5}}
-	r.world.bolts = append(r.world.bolts, lightningBolt{entity: entity, life: 2, flashes: 1 + rng.NextIntBound(3), random: rng})
+	r.world.bolts = append(r.world.bolts, lightningBolt{entity: entity, visualOnly: horse != nil, life: 2, flashes: 1 + rng.NextIntBound(3), random: rng})
 	if r.lightningAdded != nil {
-		r.lightningAdded(entity)
+		r.lightningAdded(entity, horse)
 	}
 	return nil
+}
+
+func newLightningUUID() (id [16]byte, seed int64, err error) {
+	_, err = rand.Read(id[:])
+	seed = int64(binary.LittleEndian.Uint64(id[:8]))
+	id[6] = id[6]&15 | 64
+	id[8] = id[8]&63 | 128
+	return
 }
 
 func (w *World) LightningEntities() []WorldEntity {

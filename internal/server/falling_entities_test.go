@@ -1,12 +1,65 @@
 package server
 
 import (
+	"atlas/internal/nbt"
 	"atlas/internal/player"
 	"atlas/internal/proto"
 	"atlas/internal/world"
 	"encoding/hex"
+	"slices"
 	"testing"
 )
+
+func TestSkeletonTrapSpawnPacketsAndGameRule(t *testing.T) {
+	s, near := interactionServer(t)
+	for _, value := range []string{"false", "true"} {
+		if got := s.commandGameRule([]string{"doMobSpawning", value}); got != "Gamerule doMobSpawning is now set to: "+value {
+			t.Fatal(got)
+		}
+		if got := s.commandGameRule([]string{"doMobSpawning"}); got != "Gamerule doMobSpawning is currently set to: "+value {
+			t.Fatal(got)
+		}
+	}
+	near.SetPlayReady(true)
+	near.MarkChunkSent(0, 0)
+	distant := player.New("Distant", [16]byte{3}, 3, nil)
+	distant.SetPlayReady(true)
+	distant.MarkChunkSent(0, 0)
+	distant.SetPos(200, -58, 8, 0, 0, true)
+	horse := world.WorldEntity{UUID: [16]byte{7}, Type: world.SkeletonHorseEntity, Position: [3]float64{8, -58, 8}, Data: nbt.Object{"Health": {Type: nbt.Float, Value: float32(15)}}}
+	bolt := world.WorldEntity{UUID: [16]byte{8}, Type: world.LightningEntity, Position: [3]float64{8.5, -58, 8.5}}
+	s.publishTrapStrike([]*player.Player{near, distant}, s.World.DimensionName(), horse, bolt)
+	check := func(p *player.Player, want []int32) {
+		t.Helper()
+		var got []int32
+		for len(p.Out) > 0 {
+			pkt := <-p.Out
+			if pkt.ID != proto.SSpawnEntity {
+				continue
+			}
+			r := proto.NewReader(pkt.Payload)
+			_, _ = r.VarInt()
+			uuid, _ := r.UUID()
+			kind, err := r.VarInt()
+			x, _ := r.F64()
+			y, _ := r.F64()
+			z, errZ := r.F64()
+			expected := bolt
+			if kind == 92 {
+				expected = horse
+			}
+			if err != nil || errZ != nil || uuid != expected.UUID || [3]float64{x, y, z} != expected.Position {
+				t.Fatalf("unexpected entity %d at %v %v %v", kind, x, y, z)
+			}
+			got = append(got, kind)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s spawn order %v, want %v", p.Name, got, want)
+		}
+	}
+	check(near, []int32{92, 64})
+	check(distant, []int32{64})
+}
 
 func TestLightningTrackingMatchesVanillaSpawnAndRemoval(t *testing.T) {
 	s, first := interactionServer(t)

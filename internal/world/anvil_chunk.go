@@ -172,7 +172,8 @@ func (c *Chunk) updateAnvilBlocks() (string, nbt.Tag, error) {
 	}
 	root, _ := c.anvilRoot.Object()
 	if c.scheduledTicks != nil {
-		ticks, blocks, post, revision, time := c.scheduledTicks.snapshot()
+		ticks, blocks, post, revision, time, inhabited := c.scheduledTicks.snapshot()
+		root["InhabitedTime"] = nbt.Tag{Type: nbt.Long, Value: inhabited}
 		root["fluid_ticks"] = ticks
 		root["block_ticks"] = blocks
 		if post.Type == nbt.List {

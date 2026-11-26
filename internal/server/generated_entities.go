@@ -21,6 +21,7 @@ var generatedEntityTypes = map[string]int32{
 	"minecraft:chicken":         19,
 	"minecraft:cow":             22,
 	"minecraft:horse":           53,
+	world.SkeletonHorseEntity:   92,
 	"minecraft:donkey":          25,
 	"minecraft:armadillo":       2,
 	"minecraft:fox":             42,
@@ -119,7 +120,7 @@ func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
 	vehicles := make(map[generatedEntityKey][]generatedEntityKey)
 	var collect func(world.WorldEntity, int)
 	collect = func(entity world.WorldEntity, depth int) {
-		if depth > 64 {
+		if depth > 64 || !weatherEntityInRange(p, entity) {
 			return
 		}
 		key := generatedEntityKey{w.DimensionName(), entity.UUID}
@@ -189,27 +190,8 @@ func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
 		if _, already := view[key]; already {
 			continue
 		}
-		tracking := s.generatedEntities[key]
-		if tracking == nil {
-			tracking = &generatedEntityTracking{id: s.nextEntityID(), snapshot: entity}
-			s.generatedEntities[key] = tracking
-		}
-		if entity.Revision >= tracking.snapshot.Revision {
-			tracking.snapshot = entity
-		}
-		tracking.viewers++
-		view[key] = tracking.id
+		s.spawnGeneratedEntity(p, sink, key, entity, view)
 		added[key] = true
-		sink.SendPacket(proto.SSpawnEntity, generatedEntitySpawnPayload(tracking.id, entity))
-		if metadata := generatedEntityMetadata(tracking.id, entity); len(metadata) > 0 {
-			sink.SendPacket(proto.SEntityMetadata, metadata)
-		}
-		if equipment, err := generatedEntityEquipment(tracking.id, entity); err != nil {
-			s.Logf("generated entity equipment failed: entity=%s error=%v", entity.Type, err)
-		} else if len(equipment) > 0 {
-			sink.SendPacket(proto.SSetEquipment, equipment)
-		}
-		p.MarkVisible(tracking.id)
 	}
 	for vehicle, passengers := range vehicles {
 		id, visible := view[vehicle]
@@ -230,6 +212,30 @@ func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
 	}
 }
 
+// The caller holds entityMu and has checked chunk delivery and visibility.
+func (s *Server) spawnGeneratedEntity(p *player.Player, sink *player.WorldSink, key generatedEntityKey, entity world.WorldEntity, view map[generatedEntityKey]int32) {
+	tracking := s.generatedEntities[key]
+	if tracking == nil {
+		tracking = &generatedEntityTracking{id: s.nextEntityID(), snapshot: entity}
+		s.generatedEntities[key] = tracking
+	}
+	if entity.Revision >= tracking.snapshot.Revision {
+		tracking.snapshot = entity
+	}
+	tracking.viewers++
+	view[key] = tracking.id
+	sink.SendPacket(proto.SSpawnEntity, generatedEntitySpawnPayload(tracking.id, entity))
+	if metadata := generatedEntityMetadata(tracking.id, entity); len(metadata) > 0 {
+		sink.SendPacket(proto.SEntityMetadata, metadata)
+	}
+	if equipment, err := generatedEntityEquipment(tracking.id, entity); err != nil {
+		s.Logf("generated entity equipment failed: entity=%s error=%v", entity.Type, err)
+	} else if len(equipment) > 0 {
+		sink.SendPacket(proto.SSetEquipment, equipment)
+	}
+	p.MarkVisible(tracking.id)
+}
+
 func (s *Server) generatedEntityView(p *player.Player) map[generatedEntityKey]int32 {
 	if s.generatedViews == nil {
 		s.generatedViews = make(map[*player.Player]map[generatedEntityKey]int32)
@@ -241,6 +247,25 @@ func (s *Server) generatedEntityView(p *player.Player) map[generatedEntityKey]in
 		s.generatedViews[p] = view
 	}
 	return view
+}
+
+func (s *Server) publishTrapStrike(players []*player.Player, dimension string, horse, bolt world.WorldEntity) {
+	cx, cz := fallingChunk(horse)
+	key := generatedEntityKey{dimension, horse.UUID}
+	s.entityMu.Lock()
+	for _, p := range players {
+		sink := p.WorldPacketSinkInDimension(dimension)
+		if sink == nil || !p.PlayReady() || !sink.IsChunkSent(cx, cz) || !weatherEntityInRange(p, horse) {
+			continue
+		}
+		view := s.generatedEntityView(p)
+		if _, visible := view[key]; !visible {
+			s.spawnGeneratedEntity(p, sink, key, horse, view)
+		}
+	}
+	s.entityMu.Unlock()
+	register := s.publishLightningSpawn(players, dimension, bolt)
+	register()
 }
 
 func generatedPassengersPayload(vehicle int32, passengers []int32) []byte {

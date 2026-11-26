@@ -40,6 +40,10 @@ public final class RandomTickProbe {
         for (Object row : (List<?>) type.getMethod("lightningCases",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
             out.println("lightning " + gson.toJson(row));
         }
+        for (Object row : (List<?>) type.getMethod("trapCases",Class.forName("ka")).invoke(world,IglooProbeSupport.registryAccess())) {
+            out.println("trap " + gson.toJson(row));
+        }
+        out.println("horse " + type.getMethod("horseDefaults").invoke(world));
         out.flush();
     }
 }

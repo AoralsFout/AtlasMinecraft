@@ -43,8 +43,14 @@ func (s *Server) TickWorlds() error {
 			publishWeather(players, name, previous, current, changedRain)
 		}
 		var registerViewers []func()
-		added := func(entity world.WorldEntity) {
-			registerViewers = append(registerViewers, s.publishLightningSpawn(players, name, entity))
+		added := func(bolt world.WorldEntity, trap *world.WorldEntity) {
+			if trap != nil {
+				// Horse tracking shares entityMu with block placement. Publish
+				// the pair in native order after releasing the world tick lock.
+				registerViewers = append(registerViewers, func() { s.publishTrapStrike(players, name, *trap, bolt) })
+			} else {
+				registerViewers = append(registerViewers, s.publishLightningSpawn(players, name, bolt))
+			}
 		}
 		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance), publish, added); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))

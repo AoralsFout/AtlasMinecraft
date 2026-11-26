@@ -22,6 +22,8 @@ def main():
                              cwd=directory, stdout=subprocess.PIPE, check=True)
     cases = []
     lightning = []
+    traps = []
+    horse = None
     precipitation = []
     sizes = {}
     flags = None
@@ -32,6 +34,10 @@ def main():
             precipitation.append(json.loads(line[14:]))
         elif line.startswith(b'lightning '):
             lightning.append(json.loads(line[10:]))
+        elif line.startswith(b'trap '):
+            traps.append(json.loads(line[5:]))
+        elif line.startswith(b'horse '):
+            horse = bytes.fromhex(line[6:].decode())
         elif line.startswith(b'sizes '):
             sizes = json.loads(line[6:])
         elif line.startswith(b'flags '):
@@ -51,12 +57,16 @@ def main():
         lines.append(']}' + (',' if index + 1 < len(cases) else ''))
     lines.append(']}')
     payloads = {
+        'testdata/worldgen/skeleton_traps_1.21.1.json': ('[\n' + ',\n'.join(map(dump, traps)) + '\n]\n').encode(),
+        'internal/world/skeleton_trap_1.21.1.bin': horse,
         'testdata/worldgen/precipitation_1.21.1.json': ('[\n' + ',\n'.join(map(dump, precipitation)) + '\n]\n').encode(),
         'testdata/worldgen/lightning_1.21.1.json': ('[\n' + ',\n'.join(map(dump, lightning)) + '\n]\n').encode(),
         'internal/world/entity_sizes_1.21.1.json': (json.dumps(sizes, indent=None, separators=(',', ':')) + '\n').encode(),
         'internal/world/random_tick_states_1.21.1.bin': flags,
         'testdata/worldgen/random_ticks_1.21.1.json': ('\n'.join(lines) + '\n').encode(),
     }
+    if len(traps) != 11 or not horse:
+        raise RuntimeError('Incomplete original skeleton trap capture')
     for name, data in payloads.items():
         path = common.ROOT / name
         if args.check:
@@ -66,7 +76,7 @@ def main():
                 raise RuntimeError(f'Original random tick reference changed: {name}')
         else:
             common.atomic_write(path, data)
-    print(f'{"Checked" if args.check else "Published"} {len(cases)} random-tick cases, {len(precipitation)} precipitation cases, {len(lightning)} lightning cases and {len(flags)} state flags')
+    print(f'{"Checked" if args.check else "Published"} {len(cases)} random-tick cases, {len(precipitation)} precipitation cases, {len(lightning)} lightning cases, {len(traps)} skeleton trap cases and {len(flags)} state flags')
 
 
 if __name__ == '__main__':

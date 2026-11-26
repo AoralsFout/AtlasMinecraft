@@ -82,9 +82,84 @@ public final class RandomTickLevel extends aqu {
     private bsr spawnedBolt;
     @Override public boolean ac() { return strikeTarget != null; }
     @Override protected jd b(jd column) { return strikeTarget; }
-    @Override public bqp d_(jd p) { return new bqp(bqo.a,0L,0L,0f); }
+    private bqo difficulty = bqo.a;
+    private long day;
+    private dwy dimension;
+    private ka registry;
+    private List<String> additions;
+    private cho horse;
+    private String horseDefaults;
+    @Override public ka H_() { return registry; }
+    @Override public bqp d_(jd p) { return dimension == null ? new bqp(bqo.a,0,0,0) : super.d_(p); }
+    @Override public boolean B(jd p) { return inside(p); }
+    @Override public dvi m(jd p) { return chunk; }
+    @Override public long aa() { return day; }
+    @Override public long ak() { return day; }
+    @Override public bqo al() { return difficulty; }
+    @Override public dwy D_() { return dimension == null ? super.D_() : dimension; }
     @Override public cpl J() { return cpn.f; }
-    @Override public boolean b(bsr entity) { spawnedBolt = entity; return true; }
+    @Override public boolean b(bsr entity) {
+        if (entity instanceof cho h) horse = h;
+        if (entity instanceof btm) spawnedBolt = entity;
+        if (additions != null) additions.add(lt.f.b(entity.am()).toString());
+        return true;
+    }
+
+    public String horseDefaults() { return horseDefaults; }
+
+    public List<Map<String,Object>> trapCases(ka registries) throws Exception {
+        registry = registries;
+        dimension = registries.d(lu.aK).a(akr.a("minecraft:overworld"));
+        List<Map<String,Object>> cases = new ArrayList<>();
+        for (var spec : new long[][] {
+                // difficulty, initial day and inhabited time, rod, spawning, RNG seed of strike tick
+                {0,0,0,0,1,134733527495473L}, {1,0,0,0,1,134733527495473L},
+                {1,0,0,0,1,254272403652741L}, {2,0,0,0,1,254272403652741L},
+                {3,0,0,0,1,254272403652741L}, {2,0,3600000,0,1,254272403652741L},
+                {2,1536000,0,0,1,254272403652741L},
+                {3,1536000,3600000,0,1,114099472626143L},
+                {3,1632000,3600000,0,1,114099472626143L},
+                {3,1536000,3600000,1,1,114099472626143L},
+                {3,1536000,3600000,0,0,114099472626143L}}) {
+            reset();
+            difficulty = bqo.values()[(int)spec[0]]; day = spec[1]; chunk.b(spec[2]);
+            boolean rod = spec[3] == 1, mobs = spec[4] == 1;
+            weatherRules = new dcs();
+            weatherRules.a(dcs.e).a(mobs, (net.minecraft.server.MinecraftServer)null);
+            biome = registries.d(lu.aF).c(akr.a("minecraft:plains")).orElseThrow();
+            rainy = true;
+            initial(CENTER,block(rod ? "lightning_rod" : "stone"));
+            strikeTarget = CENTER.d();
+            Map<String,Object> result = new LinkedHashMap<>();
+            result.put("base", spec[0]); result.put("initialDay", day); result.put("initialInhabited", chunk.u());
+            result.put("rod",rod); result.put("mobSpawning",mobs);
+            List<Object> ticks = new ArrayList<>();
+            for (int i=0; i<4; i++) {
+                day++; chunk.a(1L);
+                spawnedBolt = null; horse = null; additions = new ArrayList<>();
+                Long seed = i == 0 ? Long.valueOf(17) : i == 1 ? Long.valueOf(spec[5]) : null;
+                var row = step(0,seed,15,i == 1 ? CENTER : null,new int[0][]);
+                row.keySet().retainAll(List.of("tick","seed","lcgBefore","lcgAfter","rngAfter"));
+                row.put("inhabited",chunk.u()); row.put("difficulty",d_(strikeTarget).b()); row.put("added",additions);
+                row.put("visualOnly", spawnedBolt != null && field(btm.class,"h").getBoolean(spawnedBolt));
+                if (horse != null) {
+                    var nbt = horse.f(new ub());
+                    row.put("horsePos",new double[]{horse.dt(),horse.dv(),horse.dz()});
+                    row.put("trap",nbt.q("SkeletonTrap")); row.put("trapTime",nbt.h("SkeletonTrapTime"));
+                    row.put("age",nbt.h("Age")); row.put("health",horse.ew());
+                    row.put("typeId",lt.f.a(horse.am()));
+                    for (String key : List.of("UUID","Pos","Rotation")) nbt.r(key);
+                    var bytes = new java.io.ByteArrayOutputStream();
+                    var out = new java.io.DataOutputStream(bytes);
+                    out.writeByte(10); nbt.a(out);
+                    horseDefaults = java.util.HexFormat.of().formatHex(bytes.toByteArray());
+                }
+                ticks.add(row);
+            }
+            result.put("ticks",ticks); cases.add(result);
+        }
+        return cases;
+    }
 
     public List<Map<String,Object>> lightningCases(ka registries) throws Exception {
         List<Map<String,Object>> cases = new ArrayList<>();
