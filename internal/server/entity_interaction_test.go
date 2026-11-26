@@ -117,7 +117,7 @@ func armorStandServer(t *testing.T) (*Server, *player.Player, *player.Player, wo
 		t.Fatal(err)
 	}
 	s := New(Config{}, h, w)
-	s.nextEID.Store(100)
+	reserveTestEntityIDs(100)
 	p := player.New("First", [16]byte{1}, 1, nil)
 	other := player.New("Second", [16]byte{2}, 2, nil)
 	for _, p := range []*player.Player{p, other} {

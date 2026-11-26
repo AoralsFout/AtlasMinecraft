@@ -107,6 +107,16 @@ public final class RandomTickLevel extends aqu {
 
     public String horseDefaults() { return horseDefaults; }
 
+    public String skeletonDefaults() throws Exception {
+        ub data = bsx.aN.a(this).f(new ub());
+        for (String key : List.of("UUID","Pos","Rotation")) data.r(key);
+        var bytes = new java.io.ByteArrayOutputStream();
+        var out = new java.io.DataOutputStream(bytes);
+        out.writeByte(10);
+        data.a(out);
+        return HexFormat.of().formatHex(bytes.toByteArray());
+    }
+
     public List<Map<String,Object>> trapCases(ka registries) throws Exception {
         registry = registries;
         dimension = registries.d(lu.aK).a(akr.a("minecraft:overworld"));

@@ -30,7 +30,7 @@ func prepareFallingItemLanding(t *testing.T, w *World, atLanding bool) {
 			if err != nil {
 				return err
 			}
-			return persistFallingEntities(actor, ch, []WorldEntity{e})
+			return persistChunkEntities(actor, ch, []WorldEntity{e})
 		}); err != nil {
 			t.Fatal(err)
 		}

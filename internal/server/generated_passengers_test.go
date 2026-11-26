@@ -16,7 +16,7 @@ func TestGeneratedPassengerVisibilityAndPacketOrdering(t *testing.T) {
 	s, p, dir := dimensionTestServer(t)
 	// The helper inserts players with explicit test EIDs instead of using the
 	// runtime allocator; reserve them before allocating generated actor IDs.
-	s.nextEID.Store(100)
+	reserveTestEntityIDs(100)
 	fixture, err := os.ReadFile("../../testdata/worldgen/structure_drowned_actors_1.21.1.txt")
 	if err != nil {
 		t.Fatal(err)

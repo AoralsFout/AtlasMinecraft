@@ -190,3 +190,9 @@ func TestMovementCorrectsWallCrossingEvenWhileFlying(t *testing.T) {
 		t.Fatal("clear negative-coordinate movement rejected")
 	}
 }
+
+// Test players use explicit small IDs outside the normal login allocator.
+func reserveTestEntityIDs(through int32) {
+	for world.NextRuntimeEntityID() <= through {
+	}
+}

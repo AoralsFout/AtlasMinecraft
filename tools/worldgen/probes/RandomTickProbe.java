@@ -44,6 +44,7 @@ public final class RandomTickProbe {
             out.println("trap " + gson.toJson(row));
         }
         out.println("horse " + type.getMethod("horseDefaults").invoke(world));
+        out.println("skeleton " + type.getMethod("skeletonDefaults").invoke(world));
         out.flush();
     }
 }

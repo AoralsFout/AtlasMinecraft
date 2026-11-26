@@ -92,7 +92,7 @@ func TestGeneratedEntityPacketsAgainstVanillaJAR(t *testing.T) {
 
 func TestGeneratedEntityTrackingAfterChunksAndDimensionChange(t *testing.T) {
 	s, p, _ := dimensionTestServer(t)
-	s.nextEID.Store(100)
+	reserveTestEntityIDs(100)
 	end, _ := s.WorldInDimension("minecraft:the_end")
 	entities, err := end.EntitiesInChunk(2, 0)
 	if err != nil {

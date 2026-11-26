@@ -21,6 +21,7 @@ var generatedEntityTypes = map[string]int32{
 	"minecraft:chicken":         19,
 	"minecraft:cow":             22,
 	"minecraft:horse":           53,
+	"minecraft:skeleton":        91,
 	world.SkeletonHorseEntity:   92,
 	"minecraft:donkey":          25,
 	"minecraft:armadillo":       2,
@@ -73,10 +74,14 @@ func generatedEntitySpawnPayload(id int32, entity world.WorldEntity) []byte {
 		data = int32(facing)
 		headYaw = 0
 	}
-	return proto.NewWriter().VarInt(id).UUID(entity.UUID).VarInt(generatedEntityTypes[entity.Type]).
+	w := proto.NewWriter().VarInt(id).UUID(entity.UUID).VarInt(generatedEntityTypes[entity.Type]).
 		F64(position[0]).F64(position[1]).F64(position[2]).
 		I8(angle(entity.Rotation[1])).I8(angle(entity.Rotation[0])).I8(headYaw).
-		VarInt(data).I16(0).I16(0).I16(0).Payload()
+		VarInt(data)
+	if entity.Type == world.SkeletonHorseEntity {
+		return fallingMotion(w, entity).Payload()
+	}
+	return w.I16(0).I16(0).I16(0).Payload()
 }
 
 func generatedEntityMetadata(id int32, entity world.WorldEntity) []byte {
@@ -106,6 +111,7 @@ func generatedEntityMetadata(id int32, entity world.WorldEntity) []byte {
 // never hold the server's entity publication lock. The captured epoch excludes
 // an obsolete world even if the player leaves and returns to the same dimension.
 func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
+	revision := s.trapRevision.Load()
 	if !p.PlayReady() {
 		return
 	}
@@ -151,6 +157,13 @@ func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
 		for _, entity := range entities {
 			collect(entity, 0)
 		}
+	}
+	// A scan can overlap a whole trap activation. Publish its snapshot only
+	// after that tick's ordered spawn/remove packets, and only if still current.
+	s.trapPublishMu.Lock()
+	defer s.trapPublishMu.Unlock()
+	if revision != s.trapRevision.Load() {
+		return
 	}
 	s.entityMu.Lock()
 	defer s.entityMu.Unlock()
@@ -216,7 +229,7 @@ func (s *Server) updateGeneratedEntityVisibility(p *player.Player) {
 func (s *Server) spawnGeneratedEntity(p *player.Player, sink *player.WorldSink, key generatedEntityKey, entity world.WorldEntity, view map[generatedEntityKey]int32) {
 	tracking := s.generatedEntities[key]
 	if tracking == nil {
-		tracking = &generatedEntityTracking{id: s.nextEntityID(), snapshot: entity}
+		tracking = s.newEntityTracking(entity)
 		s.generatedEntities[key] = tracking
 	}
 	if entity.Revision >= tracking.snapshot.Revision {
@@ -234,6 +247,14 @@ func (s *Server) spawnGeneratedEntity(p *player.Player, sink *player.WorldSink, 
 		sink.SendPacket(proto.SSetEquipment, equipment)
 	}
 	p.MarkVisible(tracking.id)
+}
+
+func (s *Server) newEntityTracking(entity world.WorldEntity) *generatedEntityTracking {
+	id := entity.RuntimeID
+	if id == 0 {
+		id = s.nextEntityID()
+	}
+	return &generatedEntityTracking{id: id, snapshot: entity}
 }
 
 func (s *Server) generatedEntityView(p *player.Player) map[generatedEntityKey]int32 {

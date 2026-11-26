@@ -12,16 +12,25 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
+
+var runtimeEntityIDs atomic.Int32
+
+// NextRuntimeEntityID allocates across dimensions, simulation and packet tracking.
+func NextRuntimeEntityID() int32 { return runtimeEntityIDs.Add(1) }
 
 // WorldEntity is an immutable snapshot. Data contains the complete saved NBT,
 // including unsupported fields, rather than only the client-visible fields.
 type WorldEntity struct {
-	UUID     [16]byte
-	Type     string
-	Position [3]float64
-	Rotation [2]float32
-	Data     nbt.Object
+	RuntimeID   int32 // assigned at creation for weather and trap actors
+	trapRiderID int32 // protocol ID of the newly attached skeleton, before saving/reloading
+	trapTicks   int32 // entity ticks since loading, independent of saved SkeletonTrapTime
+	UUID        [16]byte
+	Type        string
+	Position    [3]float64
+	Rotation    [2]float32
+	Data        nbt.Object
 	// LoadedFromDisk distinguishes NBT load side effects from a freshly
 	// finalized actor. It is runtime state and is never written into saved NBT.
 	LoadedFromDisk bool
@@ -282,6 +291,9 @@ func EntityPassengers(entity WorldEntity) ([]WorldEntity, error) {
 			return nil, err
 		}
 		passenger.LoadedFromDisk = entity.LoadedFromDisk
+		if len(result) == len(values)-1 {
+			passenger.RuntimeID = entity.trapRiderID
+		}
 		result = append(result, passenger)
 	}
 	return result, nil

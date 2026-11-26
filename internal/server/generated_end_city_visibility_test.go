@@ -32,7 +32,7 @@ func TestEndCityActorsPacketSinkLifecycle(t *testing.T) {
 	}
 	t.Cleanup(func() { end.Close() })
 	s := New(Config{ViewDistance: 2, MaxPlayers: 10}, h, overworld)
-	s.nextEID.Store(100)
+	reserveTestEntityIDs(100)
 	if err := s.AddWorld(end); err != nil {
 		t.Fatal(err)
 	}

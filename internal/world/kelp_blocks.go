@@ -151,7 +151,7 @@ func (r *fluidRuntime) finishKelpBreak(key string, entry nbt.Object) error {
 					return nil
 				}
 			}
-			return persistFallingEntities(actor, ch, append(append([]WorldEntity(nil), ch.entities...), *entity))
+			return persistChunkEntities(actor, ch, append(append([]WorldEntity(nil), ch.entities...), *entity))
 		}); err != nil {
 			return err
 		}

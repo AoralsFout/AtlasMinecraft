@@ -114,7 +114,7 @@ func (r *Region) runFallingEntityOperation(op fallingEntityOperation) {
 	op.result <- err
 }
 
-func persistFallingEntities(r *Region, ch *Chunk, entities []WorldEntity) error {
+func persistChunkEntities(r *Region, ch *Chunk, entities []WorldEntity) error {
 	v := r.world.store.vanilla
 	name, root, _, err := v.readEntityChunk(ch.cx, ch.cz)
 	if err != nil {
@@ -129,6 +129,7 @@ func persistFallingEntities(r *Region, ch *Chunk, entities []WorldEntity) error 
 		return err
 	}
 	ch.entities = entities
+	ch.entitiesDirty = false
 	r.world.fallingEntities.register(ch)
 	return nil
 }
@@ -244,7 +245,7 @@ func (r *fluidRuntime) finishFallingSpawn(entry nbt.Object) error {
 		}
 		if !found {
 			entities := append(append([]WorldEntity(nil), ch.entities...), entity)
-			if err := persistFallingEntities(actor, ch, entities); err != nil {
+			if err := persistChunkEntities(actor, ch, entities); err != nil {
 				return err
 			}
 		}
@@ -407,7 +408,7 @@ func (w *World) tickFallingEntity(r *fluidRuntime, key fallingEntityKey) error {
 		// removal and its item. Failed writes retain the airborne snapshot;
 		// retry/reload cannot append a second committed item.
 		entities = append(entities, r.fallingDrops...)
-		return persistFallingEntities(actor, ch, entities)
+		return persistChunkEntities(actor, ch, entities)
 	}); err != nil {
 		return err
 	}

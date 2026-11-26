@@ -43,8 +43,10 @@ func (s *Server) TickWorlds() error {
 			publishWeather(players, name, previous, current, changedRain)
 		}
 		var registerViewers []func()
+		s.trapPublishMu.Lock()
 		added := func(bolt world.WorldEntity, trap *world.WorldEntity) {
 			if trap != nil {
+				s.trapRevision.Add(1)
 				// Horse tracking shares entityMu with block placement. Publish
 				// the pair in native order after releasing the world tick lock.
 				registerViewers = append(registerViewers, func() { s.publishTrapStrike(players, name, *trap, bolt) })
@@ -52,12 +54,15 @@ func (s *Server) TickWorlds() error {
 				registerViewers = append(registerViewers, s.publishLightningSpawn(players, name, bolt))
 			}
 		}
-		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance), publish, added); err != nil {
+		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance), publish, added, func(change world.TrapChange) {
+			registerViewers = append(registerViewers, func() { s.publishTrapChange(players, name, change) })
+		}); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 		for _, register := range registerViewers {
 			register()
 		}
+		s.trapPublishMu.Unlock()
 		s.publishTickingEntities(w, players)
 	}
 	return errors.Join(errs...)

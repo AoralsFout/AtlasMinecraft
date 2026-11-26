@@ -88,6 +88,11 @@ func (r *Region) unloadUnused(cutoff time.Time) (int, error) {
 			continue
 		}
 		persist := func(data *light.Data) error {
+			if ch.entitiesDirty {
+				if err := persistChunkEntities(r, ch, ch.entities); err != nil {
+					return err
+				}
+			}
 			if ch.scheduledTicks != nil && ch.scheduledTicks.needsSave() {
 				ch.dirty = true
 			}

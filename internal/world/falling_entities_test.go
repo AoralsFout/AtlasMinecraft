@@ -208,7 +208,7 @@ func TestFallingSpawnJournalRecovery(t *testing.T) {
 				root, _ := ch.anvilRoot.Object()
 				root[fallingJournal] = nbt.Tag{Type: nbt.List, ListType: nbt.Compound, Value: []nbt.Tag{{Type: nbt.Compound, Value: entry}}}
 				if stage != "entity_written" {
-					if err := persistFallingEntities(actor, ch, nil); err != nil {
+					if err := persistChunkEntities(actor, ch, nil); err != nil {
 						return err
 					}
 				}

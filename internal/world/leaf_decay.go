@@ -118,7 +118,7 @@ func (r *fluidRuntime) finishLeafDecay(chunk chunkKey, key string, entry nbt.Obj
 		if len(entities) == len(ch.entities) {
 			return nil
 		}
-		return persistFallingEntities(actor, ch, entities)
+		return persistChunkEntities(actor, ch, entities)
 	}); err != nil {
 		return err
 	}

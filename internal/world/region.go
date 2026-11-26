@@ -334,6 +334,7 @@ func (r *Region) run() {
 			r.chunks[k] = msg.chunk
 			msg.chunk.scheduledTicks = r.world.scheduledTicks.register(msg.chunk)
 			r.world.fallingEntities.register(msg.chunk)
+			msg.chunk.indexSkeletonTraps()
 			msg.chunk.lastAccess = time.Now()
 			if r.world.lighting != nil {
 				r.applyLight(msg.chunk, r.world.lighting.Snapshot(light.Position{X: msg.cx, Z: msg.cz}), false)
@@ -391,6 +392,9 @@ func (r *Region) saveChunks() error {
 	var combined error
 	if r.world.store != nil {
 		for key, ch := range r.chunks {
+			if ch.entitiesDirty {
+				combined = errors.Join(combined, persistChunkEntities(r, ch, ch.entities))
+			}
 			if ch.scheduledTicks != nil && ch.scheduledTicks.needsSave() {
 				ch.dirty = true
 			}

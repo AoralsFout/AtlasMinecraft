@@ -40,14 +40,17 @@ type Config struct {
 }
 
 type Server struct {
-	Cfg               Config
-	Hub               *hub.Hub
-	World             *world.World
-	worldMu           sync.RWMutex
-	worlds            map[string]*world.World
-	worldClockMu      sync.Mutex // Serializes world ticks and daytime commands across dimensions.
-	serverTicks       int32      // Server tick count, independent of the saved game time.
-	nextEID           atomic.Int32
+	trapPublishMu sync.Mutex
+	trapRevision  atomic.Uint64
+
+	Cfg          Config
+	Hub          *hub.Hub
+	World        *world.World
+	worldMu      sync.RWMutex
+	worlds       map[string]*world.World
+	worldClockMu sync.Mutex // Serializes world ticks and daytime commands across dimensions.
+	serverTicks  int32      // Server tick count, independent of the saved game time.
+
 	nextTeleportID    atomic.Int32
 	listenerMu        sync.Mutex
 	listener          net.Listener
@@ -274,4 +277,4 @@ func (s *Server) kick(fc *proto.FramedConn, packetID int32, msg string) {
 }
 
 // nextEntityID allocates a fresh play-phase entity id.
-func (s *Server) nextEntityID() int32 { return s.nextEID.Add(1) }
+func (s *Server) nextEntityID() int32 { return world.NextRuntimeEntityID() }

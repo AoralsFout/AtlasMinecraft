@@ -24,6 +24,7 @@ def main():
     lightning = []
     traps = []
     horse = None
+    skeleton = None
     precipitation = []
     sizes = {}
     flags = None
@@ -38,6 +39,8 @@ def main():
             traps.append(json.loads(line[5:]))
         elif line.startswith(b'horse '):
             horse = bytes.fromhex(line[6:].decode())
+        elif line.startswith(b'skeleton '):
+            skeleton = bytes.fromhex(line[9:].decode())
         elif line.startswith(b'sizes '):
             sizes = json.loads(line[6:])
         elif line.startswith(b'flags '):
@@ -59,13 +62,14 @@ def main():
     payloads = {
         'testdata/worldgen/skeleton_traps_1.21.1.json': ('[\n' + ',\n'.join(map(dump, traps)) + '\n]\n').encode(),
         'internal/world/skeleton_trap_1.21.1.bin': horse,
+        'internal/world/skeleton_rider_1.21.1.bin': skeleton,
         'testdata/worldgen/precipitation_1.21.1.json': ('[\n' + ',\n'.join(map(dump, precipitation)) + '\n]\n').encode(),
         'testdata/worldgen/lightning_1.21.1.json': ('[\n' + ',\n'.join(map(dump, lightning)) + '\n]\n').encode(),
         'internal/world/entity_sizes_1.21.1.json': (json.dumps(sizes, indent=None, separators=(',', ':')) + '\n').encode(),
         'internal/world/random_tick_states_1.21.1.bin': flags,
         'testdata/worldgen/random_ticks_1.21.1.json': ('\n'.join(lines) + '\n').encode(),
     }
-    if len(traps) != 11 or not horse:
+    if len(traps) != 11 or not horse or not skeleton:
         raise RuntimeError('Incomplete original skeleton trap capture')
     for name, data in payloads.items():
         path = common.ROOT / name

@@ -148,7 +148,7 @@ func (s *Server) spawnTickingEntity(p *player.Player, sink *player.WorldSink, di
 	tracking := s.generatedEntities[key]
 	cx, cz := fallingChunk(entity)
 	if tracking == nil {
-		tracking = &generatedEntityTracking{id: s.nextEntityID(), snapshot: entity}
+		tracking = s.newEntityTracking(entity)
 	}
 	payload := tickingSpawnPayload(tracking.id, entity)
 	if len(payload) == 0 || !sink.SendPacketsInChunk(cx, cz, player.OutPacket{ID: proto.SSpawnEntity, Payload: payload}) {
@@ -172,7 +172,7 @@ func (s *Server) recordTickingViewer(p *player.Player, key generatedEntityKey, t
 // Natural lightning starts tracking in tickChunk, before its first entity
 // tick changes the rod state and broadcasts the spark event.
 func (s *Server) publishLightningSpawn(players []*player.Player, dimension string, entity world.WorldEntity) func() {
-	tracking := &generatedEntityTracking{id: s.nextEntityID(), snapshot: entity}
+	tracking := s.newEntityTracking(entity)
 	cx, cz := fallingChunk(entity)
 	packet := player.OutPacket{ID: proto.SSpawnEntity, Payload: tickingSpawnPayload(tracking.id, entity)}
 	delivered := make(map[*player.Player]*player.WorldSink)

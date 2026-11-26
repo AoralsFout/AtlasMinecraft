@@ -113,7 +113,7 @@ func TestLightningTrackingMatchesVanillaSpawnAndRemoval(t *testing.T) {
 
 func TestFallingEntityVisibilityWaitsForTerrainAndSharesMotion(t *testing.T) {
 	s, first := interactionServer(t)
-	s.nextEID.Store(10)
+	reserveTestEntityIDs(10)
 	first.SetPlayReady(true)
 	first.MarkChunkSent(0, 0)
 	second := player.New("Second", [16]byte{2}, 2, nil)

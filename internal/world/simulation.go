@@ -87,16 +87,16 @@ func (w *World) publishSimulationTickets(centers map[ChunkPosition]struct{}, dis
 // TickPlayers updates this dimension's player tickets and executes one game
 // tick. Changes to the ticket set wake asynchronous terrain preparation.
 func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
-	return w.tickPlayers(players, distance, false, nil, nil)
+	return w.tickPlayers(players, distance, false, nil, nil, nil)
 }
 
 // TickServerPlayers advances the clock for the Overworld and runs each
 // derived dimension's queues at the same age. The server ticks Overworld first.
-func (w *World) TickServerPlayers(players []SimulationPlayer, distance int32, publish WeatherPublisher, lightningAdded func(bolt WorldEntity, trap *WorldEntity)) error {
-	return w.tickPlayers(players, distance, true, publish, lightningAdded)
+func (w *World) TickServerPlayers(players []SimulationPlayer, distance int32, publish WeatherPublisher, lightningAdded func(bolt WorldEntity, trap *WorldEntity), trapChanged func(TrapChange)) error {
+	return w.tickPlayers(players, distance, true, publish, lightningAdded, trapChanged)
 }
 
-func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTick bool, publish WeatherPublisher, lightningAdded func(bolt WorldEntity, trap *WorldEntity)) error {
+func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTick bool, publish WeatherPublisher, lightningAdded func(bolt WorldEntity, trap *WorldEntity), trapChanged func(TrapChange)) error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
 	w.simulationPlayers = append(w.simulationPlayers[:0], players...)
@@ -109,7 +109,7 @@ func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTi
 		}
 		if w.spawnRadius == 0 && len(w.portalTicks) == 0 {
 			w.simulation.Store(nil)
-			return w.tickLocked(TickChunks{publishWeather: publish, lightningAdded: lightningAdded}, true, serverTick)
+			return w.tickLocked(TickChunks{publishWeather: publish, trapChanged: trapChanged, lightningAdded: lightningAdded}, true, serverTick)
 		}
 	} else {
 		w.emptyTicks = 0
@@ -123,6 +123,7 @@ func (w *World) tickPlayers(players []SimulationPlayer, distance int32, serverTi
 	}
 	chunks := TickChunks{
 		publishWeather: publish,
+		trapChanged:    trapChanged,
 		lightningAdded: lightningAdded,
 		Blocks: func(x, z int32) bool {
 			d, ok := tickets.chunks[chunkKey{x, z}]

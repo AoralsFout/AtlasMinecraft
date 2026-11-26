@@ -6,6 +6,7 @@ import (
 	"atlas/internal/worldgen"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ type scheduledTickOwner struct {
 	blocks       *tickqueue.Level[string]
 	chunks       map[uint64]*chunkScheduledTicks
 	loadOrder    []*chunkScheduledTicks
+	trapChunks   []*chunkScheduledTicks
 	now, order   int64
 	current      *tickqueue.Scheduled[worldgen.FluidType]
 	currentBlock *tickqueue.Scheduled[string]
@@ -202,6 +204,7 @@ func (h *chunkScheduledTicks) unregister() {
 	o.level.Remove(h.x, h.z)
 	o.blocks.Remove(h.x, h.z)
 	delete(o.chunks, k)
+	o.trapChunks = slices.DeleteFunc(o.trapChunks, func(record *chunkScheduledTicks) bool { return record == h })
 	for i, entry := range o.loadOrder {
 		if entry == h {
 			o.loadOrder = append(o.loadOrder[:i], o.loadOrder[i+1:]...)

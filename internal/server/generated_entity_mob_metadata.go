@@ -26,7 +26,7 @@ var generatedVillagerProfessions = map[string]int32{
 
 func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 	switch entity.Type {
-	case "minecraft:witch", "minecraft:cat", "minecraft:villager", "minecraft:zombie_villager",
+	case "minecraft:skeleton", "minecraft:witch", "minecraft:cat", "minecraft:villager", "minecraft:zombie_villager",
 		"minecraft:sheep", "minecraft:pig", "minecraft:chicken", "minecraft:cow", "minecraft:horse", world.SkeletonHorseEntity, "minecraft:donkey",
 		"minecraft:armadillo", "minecraft:fox", "minecraft:frog", "minecraft:goat", "minecraft:llama", "minecraft:mooshroom", "minecraft:panda", "minecraft:parrot", "minecraft:polar_bear", "minecraft:rabbit", "minecraft:turtle", "minecraft:wolf", "minecraft:piglin", "minecraft:piglin_brute", "minecraft:hoglin", "minecraft:drowned", "minecraft:allay", "minecraft:iron_golem", "minecraft:shulker", "minecraft:camel":
 	default:

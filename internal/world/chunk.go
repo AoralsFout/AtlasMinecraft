@@ -196,6 +196,7 @@ type Chunk struct {
 	anvilName         string
 	anvilRoot         nbt.Tag
 	entities          []WorldEntity
+	entitiesDirty     bool
 	fromAnvil         bool
 	dirty             bool
 	dirtySections     []bool

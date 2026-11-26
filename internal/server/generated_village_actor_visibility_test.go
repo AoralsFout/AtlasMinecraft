@@ -140,7 +140,7 @@ func TestVillageActorsPacketSinkLifecycle(t *testing.T) {
 		}
 	}
 	s := New(Config{ViewDistance: 2, MaxPlayers: 10}, h, w)
-	s.nextEID.Store(100)
+	reserveTestEntityIDs(100)
 	newViewer := func(id int32) *player.Player {
 		p := player.New("VillageViewer"+strconv.Itoa(int(id)), [16]byte{byte(id)}, id, nil)
 		p.SetInitialDimension("minecraft:overworld")

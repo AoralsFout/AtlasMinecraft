@@ -1,11 +1,9 @@
 package world
 
 import (
-	"atlas/internal/nbt"
 	"atlas/internal/tickqueue"
 	"atlas/internal/worldgen"
 	_ "embed"
-	"math"
 	"strconv"
 )
 
@@ -27,7 +25,7 @@ func (w *World) SetMobSpawning(enabled bool) error {
 	return w.setCycleRule("doMobSpawning", strconv.FormatBool(enabled), func(owner *World) { owner.mobsDisabled = !enabled })
 }
 
-func (w *World) localDifficulty(p worldgen.FeaturePosition) float32 {
+func (w *World) baseDifficulty() int64 {
 	base := int64(2)
 	if w.store != nil {
 		v := w.store.vanilla
@@ -39,6 +37,11 @@ func (w *World) localDifficulty(p worldgen.FeaturePosition) float32 {
 		}
 		v.mu.Unlock()
 	}
+	return base
+}
+
+func (w *World) localDifficulty(p worldgen.FeaturePosition) float32 {
+	base := w.baseDifficulty()
 	if base == 0 {
 		return 0
 	}
@@ -65,31 +68,22 @@ func (w *World) localDifficulty(p worldgen.FeaturePosition) float32 {
 }
 
 func (r *fluidRuntime) spawnSkeletonTrap(p worldgen.FeaturePosition) (*WorldEntity, error) {
-	tag, _, err := nbt.ParseNetwork(skeletonTrapDefaults)
+	horse, _, err := freshTrapActor(skeletonTrapDefaults, SkeletonHorseEntity, [3]float64{float64(p.X), float64(p.Y), float64(p.Z)})
 	if err != nil {
 		return nil, err
 	}
-	data, _ := tag.Object()
-	id, seed, err := newLightningUUID()
-	if err != nil {
-		return nil, err
-	}
-	// LivingEntity chooses its initial yaw from an independent random source.
-	yaw := float32(worldgen.NewLegacyRandom(seed).NextDouble() * float64(float32(2*math.Pi)))
-	data["Rotation"] = nbt.Tag{Type: nbt.List, ListType: nbt.Float, Value: []nbt.Tag{{Type: nbt.Float, Value: yaw}, {Type: nbt.Float, Value: float32(0)}}}
-	data["Pos"] = entityPositionTag([3]float64{float64(p.X), float64(p.Y), float64(p.Z)})
-	data["UUID"] = entityUUIDTag(id)
-	data["id"] = nbt.Tag{Type: nbt.String, Value: SkeletonHorseEntity}
-	horse, err := worldEntityFromNBT(data)
-	if err != nil {
-		return nil, err
-	}
+	horse.RuntimeID = NextRuntimeEntityID()
 	err = r.world.fallingEntityOperation(p.X>>4, p.Z>>4, func(actor *Region, ch *Chunk) error {
 		if r.world.store == nil {
 			ch.entities = append(ch.entities, horse)
+			ch.indexSkeletonTraps()
 			return nil
 		}
-		return persistFallingEntities(actor, ch, append(ch.entities, horse))
+		if err := persistChunkEntities(actor, ch, append(ch.entities, horse)); err != nil {
+			return err
+		}
+		ch.indexSkeletonTraps()
+		return nil
 	})
 	return &horse, err
 }

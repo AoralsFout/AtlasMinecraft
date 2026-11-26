@@ -187,14 +187,18 @@ func (r *fluidRuntime) naturalLightning(column worldgen.FeaturePosition) error {
 			}
 		}
 	}
-	rng := worldgen.NewLegacyRandom(seed)
-	rng.NextLong() // bolt's visual seed
-	entity := WorldEntity{Type: LightningEntity, UUID: id, Position: [3]float64{float64(p.X) + 0.5, float64(p.Y), float64(p.Z) + 0.5}}
-	r.world.bolts = append(r.world.bolts, lightningBolt{entity: entity, visualOnly: horse != nil, life: 2, flashes: 1 + rng.NextIntBound(3), random: rng})
+	entity := WorldEntity{Type: LightningEntity, UUID: id, RuntimeID: NextRuntimeEntityID(), Position: [3]float64{float64(p.X) + 0.5, float64(p.Y), float64(p.Z) + 0.5}}
+	r.world.addLightning(entity, horse != nil, seed)
 	if r.lightningAdded != nil {
 		r.lightningAdded(entity, horse)
 	}
 	return nil
+}
+
+func (w *World) addLightning(entity WorldEntity, visualOnly bool, seed int64) {
+	rng := worldgen.NewLegacyRandom(seed)
+	rng.NextLong()
+	w.bolts = append(w.bolts, lightningBolt{entity: entity, visualOnly: visualOnly, life: 2, flashes: 1 + rng.NextIntBound(3), random: rng})
 }
 
 func newLightningUUID() (id [16]byte, seed int64, err error) {
@@ -224,7 +228,7 @@ func (w *World) tickLightning(eligible func(int32, int32) bool) error {
 	var failures []error
 	for _, bolt := range w.bolts {
 		xyz := bolt.entity.Position
-		p := worldgen.FeaturePosition{X: int32(math.Floor(xyz[0])), Y: int32(xyz[1]) - 1, Z: int32(math.Floor(xyz[2]))}
+		p := worldgen.FeaturePosition{X: int32(math.Floor(xyz[0])), Y: int32(math.Floor(xyz[1]-1e-6)), Z: int32(math.Floor(xyz[2]))}
 		if !eligible(p.X>>4, p.Z>>4) {
 			if w.scheduledTicks.neighborhoodLoaded(p.X>>4, p.Z>>4, 0) {
 				live = append(live, bolt)
