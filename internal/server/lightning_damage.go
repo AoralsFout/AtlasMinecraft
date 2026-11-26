@@ -31,7 +31,8 @@ func (s *Server) publishLivingDamage(players []*player.Player, dimension string,
 	if tracking == nil {
 		return
 	}
-	if change.Entity.Revision >= tracking.snapshot.Revision {
+	previous := tracking.snapshot
+	if change.Entity.Revision >= previous.Revision {
 		tracking.snapshot = change.Entity
 	}
 	id := tracking.id
@@ -48,9 +49,7 @@ func (s *Server) publishLivingDamage(players []*player.Player, dimension string,
 		}
 		return
 	}
-	hp, _ := change.Entity.Data["Health"].Value.(float32)
-	flags := livingFlags(change.Entity)
-	metadata := proto.NewWriter().VarInt(id).U8(0).VarInt(0).U8(flags).U8(9).VarInt(3).F32(hp).U8(0xff).Payload()
+	metadata := livingDamageMetadata(id, previous, change)
 	for _, p := range players {
 		view := s.generatedViews[p]
 		if _, visible := view[key]; !visible {
@@ -74,8 +73,35 @@ func (s *Server) publishLivingDamage(players []*player.Player, dimension string,
 			}
 			sink.SendPacket(proto.SDamageEvent, proto.NewWriter().VarInt(id).VarInt(source).VarInt(0).VarInt(0).Bool(false).Payload())
 		}
-		sink.SendPacket(proto.SEntityMetadata, metadata)
+		if metadata != nil {
+			sink.SendPacket(proto.SEntityMetadata, metadata)
+		}
 	}
+}
+
+func livingDamageMetadata(id int32, previous world.WorldEntity, change world.LivingDamageChange) []byte {
+	hp, _ := change.Entity.Data["Health"].Value.(float32)
+	flags := livingFlags(change.Entity)
+	w := proto.NewWriter().VarInt(id)
+	if change.Entity.Type == "minecraft:creeper" {
+		oldHP, _ := previous.Data["Health"].Value.(float32)
+		flagsChanged := flags != livingFlags(previous)
+		if !flagsChanged && oldHP == hp && !change.CreeperCharged {
+			return nil
+		}
+		if flagsChanged {
+			w.U8(0).VarInt(0).U8(flags)
+		}
+		if oldHP != hp {
+			w.U8(9).VarInt(3).F32(hp)
+		}
+		if change.CreeperCharged {
+			w.U8(17).VarInt(8).Bool(true)
+		}
+	} else {
+		w.U8(0).VarInt(0).U8(flags).U8(9).VarInt(3).F32(hp)
+	}
+	return w.U8(0xff).Payload()
 }
 
 func livingFlags(e world.WorldEntity) byte {

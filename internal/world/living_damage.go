@@ -158,10 +158,11 @@ func thunderHit(e *WorldEntity, t livingTrait, cooldown *hurtCooldown) (bool, st
 	if e.Type != "minecraft:turtle" {
 		e.Data["Fire"] = nbt.Tag{Type: nbt.Short, Value: int16(fire)}
 	}
+	source := applyLivingDamage(e, t, cooldown, amount, "lightning_bolt")
 	if e.Type == "minecraft:creeper" {
 		e.Data["powered"] = byteTag(1)
 	}
-	return true, applyLivingDamage(e, t, cooldown, amount, "lightning_bolt")
+	return true, source
 }
 
 func advanceLivingDamage(e *WorldEntity, t livingTrait, c *hurtCooldown, wet bool) (changed, removed bool, source string) {

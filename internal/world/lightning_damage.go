@@ -22,9 +22,19 @@ type LivingDamageChange struct {
 	Source           string
 	Removed          bool
 	Spawned          bool
+	CreeperCharged   bool // powered changed from false to true on this strike
 	MooshroomVariant string
 	SoundSeed        int64
 }
+
+func (e WorldEntity) IsChargedCreeper() bool {
+	if e.Type != "minecraft:creeper" {
+		return false
+	}
+	powered, _ := e.Data.Number("powered")
+	return int8(powered) != 0
+}
+
 type lightningImpact struct {
 	position      [3]float64
 	peaceful      bool
@@ -347,8 +357,9 @@ func (ch *Chunk) updateLivingTree(e *WorldEntity, bolt *lightningImpact, wet map
 		}
 		if changed || flagChanged {
 			e.Revision++
-			if removed || source != "" || flagChanged || before.Data["Health"].Value != e.Data["Health"].Value {
-				*changes = append(*changes, LivingDamageChange{Entity: *e, Source: source, Removed: removed})
+			charged := bolt != nil && e.IsChargedCreeper() && !before.IsChargedCreeper()
+			if removed || source != "" || flagChanged || charged || before.Data["Health"].Value != e.Data["Health"].Value {
+				*changes = append(*changes, LivingDamageChange{Entity: *e, Source: source, Removed: removed, CreeperCharged: charged})
 			}
 		}
 	}

@@ -20,6 +20,7 @@ var generatedEntityTypes = map[string]int32{
 	"minecraft:pig":             77,
 	"minecraft:chicken":         19,
 	"minecraft:cow":             22,
+	"minecraft:creeper":         23,
 	"minecraft:horse":           53,
 	"minecraft:skeleton":        91,
 	world.SkeletonHorseEntity:   92,

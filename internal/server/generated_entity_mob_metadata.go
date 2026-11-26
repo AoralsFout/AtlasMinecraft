@@ -27,7 +27,7 @@ var generatedVillagerProfessions = map[string]int32{
 
 func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 	switch entity.Type {
-	case "minecraft:skeleton", "minecraft:witch", "minecraft:cat", "minecraft:villager", "minecraft:zombie_villager", "minecraft:zombified_piglin",
+	case "minecraft:skeleton", "minecraft:witch", "minecraft:cat", "minecraft:creeper", "minecraft:villager", "minecraft:zombie_villager", "minecraft:zombified_piglin",
 		"minecraft:sheep", "minecraft:pig", "minecraft:chicken", "minecraft:cow", "minecraft:horse", world.SkeletonHorseEntity, "minecraft:donkey",
 		"minecraft:armadillo", "minecraft:fox", "minecraft:frog", "minecraft:goat", "minecraft:llama", "minecraft:mooshroom", "minecraft:panda", "minecraft:parrot", "minecraft:polar_bear", "minecraft:rabbit", "minecraft:turtle", "minecraft:wolf", "minecraft:piglin", "minecraft:piglin_brute", "minecraft:hoglin", "minecraft:drowned", "minecraft:allay", "minecraft:iron_golem", "minecraft:shulker", "minecraft:camel":
 	default:
@@ -61,8 +61,16 @@ func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 	age, _ := entity.Data.Number("Age")
 	baby, _ := entity.Data.Number("IsBaby")
 	zombie := entity.Type == "minecraft:zombie_villager" || entity.Type == "minecraft:drowned" || entity.Type == "minecraft:piglin" || entity.Type == "minecraft:zombified_piglin"
-	if entity.Type != "minecraft:witch" && !zombie && age < 0 || zombie && baby != 0 {
+	if entity.Type != "minecraft:creeper" && entity.Type != "minecraft:witch" && !zombie && age < 0 || zombie && baby != 0 {
 		w.U8(16).VarInt(8).Bool(true)
+	}
+	if entity.Type == "minecraft:creeper" {
+		if entity.IsChargedCreeper() {
+			w.U8(17).VarInt(8).Bool(true)
+		}
+		if ignited, _ := entity.Data.Number("ignited"); ignited != 0 {
+			w.U8(18).VarInt(8).Bool(true)
+		}
 	}
 	if entity.Type == "minecraft:sheep" {
 		color, _ := entity.Data.Number("Color")

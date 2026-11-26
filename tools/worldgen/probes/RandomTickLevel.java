@@ -1,4 +1,6 @@
 import java.lang.reflect.Field;
+import io.netty.buffer.Unpooled;
+import io.netty.buffer.ByteBufUtil;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import sun.misc.Unsafe;
@@ -461,6 +463,82 @@ public final class RandomTickLevel extends aqu {
 
     private btn conversionSource;
     private List<Long> conversionSeeds;
+
+    private String entityMetadata(List<aka.c<?>> fields) {
+        if (fields == null) return "";
+        var bytes = Unpooled.buffer();
+        try {
+            aez.a.encode(new wk(bytes,registry),new aez(77,fields));
+            return ByteBufUtil.hexDump(bytes);
+        } finally {
+            bytes.release();
+        }
+    }
+
+    public List<Map<String,Object>> creeperCases(ka registries) throws Exception {
+        registry=registries;
+        dimension=registries.d(lu.aK).a(akr.a("minecraft:overworld"));
+        field(dcw.class,"J").set(this,new brl(registries));
+        var cases=new ArrayList<Map<String,Object>>();
+        var sharedFlag=bsr.class.getDeclaredMethod("i",int.class);
+        sharedFlag.setAccessible(true);
+        for (String name : List.of("ordinary","fresh","invulnerable","precharged","visual","enters_range")) {
+            reset();
+            field(dcw.class,"z").set(this,new dyz(95));
+            field(dcw.class,"f").set(this,new dyz(19));
+            weatherRules=new dcs();
+            weatherRules.a(dcs.b).a(false,(net.minecraft.server.MinecraftServer)null);
+            difficulty=bqo.c;
+            var mob=bsx.x.a(this);
+            mob.e(-40.5,70,40.5);
+            mob.u(true);
+            if (!name.equals("fresh")) mob.h(0);
+            if (name.equals("invulnerable")) mob.n(true);
+            if (name.equals("precharged")) {
+                var saved=mob.f(new ub());
+                saved.a("powered",true);
+                mob.g(saved);
+            }
+            if (name.equals("enters_range")) mob.e(-40.5,70,45.5);
+            var scene=new LinkedHashMap<String,Object>();
+            scene.put("name",name);
+            scene.put("entityType",lt.f.a(bsx.x));
+            scene.put("spawn",entityMetadata(mob.ar().c()));
+            mob.ar().b();
+            strikeMobs=List.of(mob);
+            var bolt=bsx.am.a(this);
+            var rng=new dyz(6);
+            field(bsr.class,"ah").set(bolt,rng);
+            bolt.b=rng.g();
+            field(btm.class,"g").setInt(bolt,1+rng.a(3));
+            bolt.a(name.equals("visual"));
+            bolt.e(-40.5,70,40.5);
+            var ticks=new ArrayList<Object>();
+            for (time=1;time<=15;time++) {
+                if (name.equals("enters_range") && time==4) mob.e(-40.5,70,40.5);
+                mob.aw();
+                struck=new ArrayList<>();
+                if (!bolt.dJ()) bolt.l();
+                var row=new LinkedHashMap<String,Object>();
+                row.put("powered",mob.a());
+                row.put("health",mob.ew());
+                row.put("burning",sharedFlag.invoke(mob,0));
+                row.put("hit",!struck.isEmpty());
+                row.put("dirty",entityMetadata(mob.ar().b()));
+                row.put("tracking",entityMetadata(mob.ar().c()));
+                ticks.add(row);
+            }
+            scene.put("ticks",ticks);
+            var saved=mob.f(new ub());
+            var loaded=bsx.x.a(this);
+            loaded.g(saved);
+            scene.put("savedPowered",saved.e("powered") && saved.q("powered"));
+            scene.put("reloaded",entityMetadata(loaded.ar().c()));
+            cases.add(scene);
+        }
+        strikeMobs=null;
+        return cases;
+    }
 
     public List<Map<String,Object>> conversionCases(ka registries) throws Exception {
         registry = registries;
