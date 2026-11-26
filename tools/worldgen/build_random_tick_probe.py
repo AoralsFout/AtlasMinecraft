@@ -25,6 +25,8 @@ def main():
     traps = []
     fires = []
     fire_odds = {}
+    copper = []
+    copper_stages = {}
     horse = None
     skeleton = None
     precipitation = []
@@ -43,6 +45,10 @@ def main():
             fires.append(json.loads(line[5:]))
         elif line.startswith(b'fireOdds '):
             fire_odds = json.loads(line[8:])
+        elif line.startswith(b'copper '):
+            copper.append(json.loads(line[7:]))
+        elif line.startswith(b'copperStages '):
+            copper_stages = json.loads(line[12:])
         elif line.startswith(b'horse '):
             horse = bytes.fromhex(line[6:].decode())
         elif line.startswith(b'skeleton '):
@@ -66,6 +72,8 @@ def main():
             lines.append(']}' + (',' if index + 1 < len(scenes) else ''))
         return ('\n'.join([*lines, end]) + '\n').encode()
     payloads = {
+        'internal/world/copper_weathering_1.21.1.json': (json.dumps(copper_stages, indent=2) + '\n').encode(),
+        'testdata/worldgen/lightning_copper_1.21.1.json': trajectories(copper),
         'internal/world/fire_odds_1.21.1.json': (json.dumps(fire_odds, separators=(',', ':')) + '\n').encode(),
         'testdata/worldgen/lightning_fire_1.21.1.json': trajectories(fires),
         'testdata/worldgen/skeleton_traps_1.21.1.json': ('[\n' + ',\n'.join(map(dump, traps)) + '\n]\n').encode(),
@@ -79,6 +87,8 @@ def main():
     }
     if len(traps) != 11 or not horse or not skeleton or len(fires) != 17 or not fire_odds:
         raise RuntimeError('Incomplete original skeleton trap capture')
+    if len(copper) != 16 or len(copper_stages) != 36:
+        raise RuntimeError('Incomplete original copper capture')
     for name, data in payloads.items():
         path = common.ROOT / name
         if args.check:
@@ -89,6 +99,7 @@ def main():
         else:
             common.atomic_write(path, data)
     print(f'{"Checked" if args.check else "Published"} {len(cases)} random-tick cases, {len(precipitation)} precipitation cases, {len(lightning)} lightning cases, {len(traps)} skeleton trap cases, {len(fires)} fire cases and {len(flags)} state flags')
+    print(f'{len(copper)} lightning copper cases and {len(copper_stages)} weathering blocks')
 
 
 if __name__ == '__main__':

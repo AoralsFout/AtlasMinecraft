@@ -90,6 +90,134 @@ public final class RandomTickLevel extends aqu {
     private cho horse;
     private String horseDefaults;
     private boolean captureFireWrites;
+    private List<int[]> copperReads, copperProbes, copperWrites, sparks;
+    private long copperSearchSeed;
+    private static final StackWalker CALLERS = StackWalker.getInstance();
+
+    @Override public void a(cmx player, int event, jd pos, int data) {
+        if (sparks != null && event == 3002) sparks.add(new int[]{pos.u(),pos.v(),pos.w(),data});
+    }
+
+    public static Map<String,Object> copperStages() {
+        Map<String,Object> stages = new TreeMap<>();
+        for (dfy b : lt.e) {
+            if (!(b instanceof dpe)) continue;
+            var entry = new LinkedHashMap<String,String>();
+            entry.put("first", lt.e.b(dpe.b(b)).toString());
+            dpe.a(b).ifPresent(previous -> entry.put("previous", lt.e.b(previous).toString()));
+            stages.put(lt.e.b(b).toString(), entry);
+        }
+        return stages;
+    }
+
+    private void setupCopperBlocks(String name, jd strike, boolean fire) {
+        var blocks = new LinkedHashMap<jd,dtc>();
+        String[] metals = {"oxidized_copper","weathered_cut_copper","exposed_copper_grate",
+                "copper_block","waxed_oxidized_copper","oxidized_chiseled_copper","oxidized_cut_copper_slab"};
+        for (int x=-2;x<=2;x++) for (int y=-1;y<=1;y++) for (int z=-2;z<=2;z++) {
+            if (name.equals("sparse") && (x!=1 || y!=0 || z!=1)) continue;
+            if (fire && y==1) continue;
+            blocks.put(strike.b(x,y,z),block(metals[Math.floorMod(x+3*y+2*z,metals.length)]));
+        }
+        dtc target = switch (name) {
+            case "waxed" -> block("waxed_oxidized_copper");
+            case "stone" -> block("stone");
+            case "fresh" -> block("copper_block");
+            case "visual" -> block("oxidized_copper_bulb").a(dts.r,true);
+            case "door" -> block("oxidized_copper_door").a(dts.u,true);
+            default -> block("oxidized_cut_copper_slab").a(dts.bh,duk.a);
+        };
+        blocks.put(strike,target);
+        if (fire) {
+            for (int x=-2;x<=2;x++) for (int z=-2;z<=2;z++) {
+                if (x==0 && z==0) continue;
+                blocks.put(strike.b(x,0,z), (x+z)%2==0 ? block("oxidized_cut_copper_stairs") :
+                        block("oxidized_copper_trapdoor").a(dts.u,true));
+            }
+        }
+        if (name.equals("door")) {
+            blocks.put(strike.d(),target.a(dts.ae,dty.a));
+            blocks.put(strike.e(),block("stone"));
+        }
+        if (name.startsWith("rod_")) {
+            ji face = switch(name) {
+                case "rod_down" -> ji.a;
+                case "rod_up" -> ji.b;
+                case "rod_north" -> ji.c;
+                case "rod_south" -> ji.d;
+                case "rod_west" -> ji.e;
+                case "rod_east", "rod_waxed" -> ji.f;
+                default -> throw new IllegalArgumentException(name);
+            };
+            for (ji direction : ji.values()) blocks.put(strike.a(direction),block("oxidized_copper"));
+            blocks.put(strike,block("lightning_rod").a(dkn.a,face));
+            blocks.put(strike.a(face.g()),name.equals("rod_waxed") ? block("waxed_oxidized_copper") : target);
+        }
+        blocks.forEach(this::initial);
+    }
+
+    public List<Map<String,Object>> copperCases(ka registries) throws Exception {
+        registry = registries;
+        dimension = registries.d(lu.aK).a(akr.a("minecraft:overworld"));
+        var cases = new ArrayList<Map<String,Object>>();
+        for (String name : List.of("dense","sparse","fresh","waxed","stone","visual","boundary","door","ignition",
+                "rod_down","rod_up","rod_north","rod_south","rod_west","rod_east","rod_waxed")) {
+            reset();
+            weatherRules = new dcs();
+            boolean fire = name.equals("ignition");
+            weatherRules.a(dcs.b).a(fire,(net.minecraft.server.MinecraftServer)null);
+            difficulty = fire ? bqo.c : bqo.a;
+            jd strike = name.equals("boundary") ? CENTER.b(7,0,0) : CENTER;
+            setupCopperBlocks(name, strike, fire);
+            var scene = scene(name,false);
+            long levelSeed = name.equals("sparse") ? 301 : 95;
+            boolean visual = name.equals("visual");
+            var rng = new dyz(6);
+            field(dcw.class,"z").set(this,new dyz(levelSeed));
+            btm bolt = bsx.am.a(this);
+            field(bsr.class,"ah").set(bolt,rng);
+            bolt.b = rng.g();
+            field(btm.class,"g").setInt(bolt,1+rng.a(3));
+            bolt.a(visual);
+            bolt.e(strike.u()+.5,strike.v()+(name.equals("sparse") ? .25 : 1.0),strike.w()+.5);
+            scene.put("position",new double[]{bolt.dt(),bolt.dv(),bolt.dz()});
+            scene.put("worldSeed",levelSeed);
+            scene.put("seed",6);
+            scene.put("visual",visual);
+            scene.put("fire",fire);
+            scene.put("difficulty",difficulty.a());
+            var ticks = new ArrayList<Object>();
+            for (time = 1; !bolt.dJ(); time++) {
+                copperReads = new ArrayList<>();
+                copperProbes = new ArrayList<>();
+                copperWrites = new ArrayList<>();
+                sparks = new ArrayList<>();
+                blockTicks.a(time, 65536, (pos, block) -> {
+                    dtc state = a_(pos);
+                    if (state.a(block)) state.a(this, pos, z);
+                });
+                bolt.l();
+                if (time==1) scene.put("searchSeed",copperSearchSeed);
+                var row = new LinkedHashMap<String,Object>();
+                row.put("originReads",copperReads);
+                row.put("probes",copperProbes);
+                row.put("writes",copperWrites);
+                row.put("events",sparks);
+                row.put("worldRNG",rawState((dyz)z));
+                row.put("boltRNG",rawState(rng));
+                row.put("removed",bolt.dJ());
+                ticks.add(row);
+                copperReads = null;
+                copperProbes = null;
+                copperWrites = null;
+                sparks = null;
+            }
+            scene.put("ticks",ticks);
+            cases.add(scene);
+        }
+        return cases;
+    }
+
     @Override public ka H_() { return registry; }
     @Override public bqp d_(jd p) { return dimension == null ? new bqp(bqo.a,0,0,0) : super.d_(p); }
     @Override public boolean B(jd p) { return inside(p); }
@@ -304,8 +432,24 @@ public final class RandomTickLevel extends aqu {
     @Override public int b(jd pos, int skyDarken) { return light; }
     @Override public epe b_(jd pos) { return a_(pos).u(); }
     @Override public dtc a_(jd pos) {
-        if (!inside(pos)) return border.getOrDefault(pos,dga.a.o());
-        return section(pos).a(pos.u() & 15, pos.v() & 15, pos.w() & 15);
+        dtc state = inside(pos) ? section(pos).a(pos.u() & 15, pos.v() & 15, pos.w() & 15)
+                                : border.getOrDefault(pos,dga.a.o());
+        if (copperProbes != null) {
+            // Observe the original search, including rejected candidates, without drawing any RNG.
+            var caller = CALLERS.walk(frames -> frames.skip(1).findFirst().orElseThrow());
+            if (caller.getClassName().equals("btm")) {
+                if (caller.getMethodName().equals("c") && caller.getDescriptor().equals("(Ldcw;Ljd;)Ljava/util/Optional;"))
+                    copperProbes.add(cell(pos,state));
+                if (caller.getMethodName().equals("b") && caller.getDescriptor().equals("(Ldcw;Ljd;)V")) {
+                    if (copperReads.isEmpty()) {
+                        try { copperSearchSeed = rawState((dyz)z) ^ 0x5deece66dL; }
+                        catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+                    }
+                    copperReads.add(cell(pos,state));
+                }
+            }
+        }
+        return state;
     }
 
     private static boolean inside(jd pos) {
@@ -315,6 +459,11 @@ public final class RandomTickLevel extends aqu {
     private dvj section(jd pos) { return chunk.b(chunk.e(pos.v())); }
 
     private dtc put(jd pos, dtc state) {
+        if (!inside(pos) && copperWrites != null) {
+            dtc old = border.getOrDefault(pos,dga.a.o());
+            border.put(pos.j(),state);
+            return old;
+        }
         if (!inside(pos)) throw new IllegalStateException("write outside chunk " + pos);
         return section(pos).a(pos.u() & 15, pos.v() & 15, pos.w() & 15, state);
     }
@@ -322,7 +471,8 @@ public final class RandomTickLevel extends aqu {
     @Override public boolean a(jd pos, dtc state, int flags) {
         dtc old = put(pos, state);
         if (old == state) return false;
-        if (captureFireWrites) tracked.add(pos.j());
+        if (copperWrites != null) copperWrites.add(cell(pos,state));
+        if (captureFireWrites || copperWrites != null) tracked.add(pos.j());
         else if (!tracked.contains(pos)) throw new IllegalStateException("untracked block change " + pos);
         if (old.b() != state.b()) state.a(this, pos, old, false);
         // Run the original neighbor shape callbacks after onPlace.

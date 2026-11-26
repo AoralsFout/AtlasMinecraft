@@ -250,6 +250,9 @@ func (w *World) tickLightning(eligible func(int32, int32) bool) error {
 				live = append(live, bolt)
 				continue
 			}
+			if err := r.cleanLightningCopper(p); err != nil {
+				failures = append(failures, err)
+			}
 		}
 		bolt.life--
 		if bolt.life < 0 {
