@@ -59,6 +59,10 @@ public final class RandomTickProbe {
             out.println("hit " + gson.toJson(row));
         }
         out.println("living " + gson.toJson(type.getMethod("livingTraits").invoke(null)));
+        out.println("piglin " + type.getMethod("piglinDefaults").invoke(world));
+        for (Object row : (List<?>) type.getMethod("conversionCases",Class.forName("ka")).invoke(world,livingRegistries)) {
+            out.println("conversion " + gson.toJson(row));
+        }
         out.flush();
     }
 }

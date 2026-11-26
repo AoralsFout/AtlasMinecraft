@@ -141,15 +141,9 @@ func livingAttribute(e WorldEntity, name string, base float64) float64 {
 	return (base + mods.add) * (1 + mods.base) * mods.total
 }
 
-func thunderHit(e *WorldEntity, t livingTrait, cooldown *hurtCooldown, bolt *lightningImpact) (bool, string) {
-	// These entities dispatch thunderHit to their own conversion/decoration logic.
-	switch e.Type {
-	case "minecraft:armor_stand", "minecraft:mooshroom":
+func thunderHit(e *WorldEntity, t livingTrait, cooldown *hurtCooldown) (bool, string) {
+	if e.Type == "minecraft:armor_stand" {
 		return false, ""
-	case "minecraft:pig", "minecraft:villager":
-		if !bolt.peaceful {
-			return false, ""
-		}
 	}
 	e.Data = maps.Clone(e.Data)
 	fire, _ := e.Data.Number("Fire")
@@ -174,8 +168,13 @@ func advanceLivingDamage(e *WorldEntity, t livingTrait, c *hurtCooldown, wet boo
 	fire, _ := e.Data.Number("Fire")
 	hurt, _ := e.Data.Number("HurtTime")
 	hp, _ := e.Data["Health"].Value.(float32)
-	c.burning = fire > 1 && !t.FireImmune
-	if fire > 0 || hurt > 0 || hp <= 0 || wet && fire != 0 {
+	// Entity.baseTick synchronizes this flag after reducing immune mobs'
+	// timer by four. LivingEntity clears the actual timer later in that tick.
+	c.burning = fire > 1
+	if t.FireImmune {
+		c.burning = fire > 4
+	}
+	if fire > 0 || hurt > 0 || hp <= 0 || (wet || t.FireImmune) && fire != 0 {
 		e.Data = maps.Clone(e.Data)
 		changed = true
 		if fire > 0 {

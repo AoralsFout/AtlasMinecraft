@@ -43,6 +43,8 @@ func (s *Server) TickWorlds() error {
 			publishWeather(players, name, previous, current, changedRain)
 		}
 		var registerViewers []func()
+		var colors []world.LivingDamageChange
+		colorIndex := make(map[[16]byte]int)
 		s.trapPublishMu.Lock()
 		added := func(bolt world.WorldEntity, trap *world.WorldEntity) {
 			if trap != nil {
@@ -57,12 +59,27 @@ func (s *Server) TickWorlds() error {
 		if err := w.TickServerPlayers(byDimension[name], int32(s.Cfg.SimulationDistance), publish, added, func(change world.TrapChange) {
 			registerViewers = append(registerViewers, func() { s.publishTrapChange(players, name, change) })
 		}, func(change world.LivingDamageChange) {
+			if change.MooshroomVariant != "" {
+				registerViewers = append(registerViewers, func() { publishMooshroomSound(players, name, change) })
+				// Every transition makes a sound, but SynchedEntityData packs only
+				// the last value of a dirty field for the tracking update.
+				if i, ok := colorIndex[change.Entity.UUID]; ok {
+					colors[i] = change
+				} else {
+					colorIndex[change.Entity.UUID] = len(colors)
+					colors = append(colors, change)
+				}
+				return
+			}
 			registerViewers = append(registerViewers, func() { s.publishLivingDamage(players, name, change) })
 		}); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 		for _, register := range registerViewers {
 			register()
+		}
+		for _, change := range colors {
+			s.publishLivingDamage(players, name, change)
 		}
 		s.trapPublishMu.Unlock()
 		s.publishTickingEntities(w, players)

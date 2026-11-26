@@ -1,6 +1,7 @@
 package server
 
 import (
+	"atlas/internal/item"
 	"atlas/internal/proto"
 	"atlas/internal/world"
 )
@@ -26,7 +27,7 @@ var generatedVillagerProfessions = map[string]int32{
 
 func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 	switch entity.Type {
-	case "minecraft:skeleton", "minecraft:witch", "minecraft:cat", "minecraft:villager", "minecraft:zombie_villager",
+	case "minecraft:skeleton", "minecraft:witch", "minecraft:cat", "minecraft:villager", "minecraft:zombie_villager", "minecraft:zombified_piglin",
 		"minecraft:sheep", "minecraft:pig", "minecraft:chicken", "minecraft:cow", "minecraft:horse", world.SkeletonHorseEntity, "minecraft:donkey",
 		"minecraft:armadillo", "minecraft:fox", "minecraft:frog", "minecraft:goat", "minecraft:llama", "minecraft:mooshroom", "minecraft:panda", "minecraft:parrot", "minecraft:polar_bear", "minecraft:rabbit", "minecraft:turtle", "minecraft:wolf", "minecraft:piglin", "minecraft:piglin_brute", "minecraft:hoglin", "minecraft:drowned", "minecraft:allay", "minecraft:iron_golem", "minecraft:shulker", "minecraft:camel":
 	default:
@@ -35,6 +36,14 @@ func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 	w := proto.NewWriter().VarInt(id)
 	if flags := livingFlags(entity); flags != 0 {
 		w.U8(0).VarInt(0).U8(flags)
+	}
+	if name, ok := entity.Data.Text("CustomName"); ok {
+		if tag, err := item.SavedTextComponent(name); err == nil {
+			w.U8(2).VarInt(6).Bool(true).Raw(encodeText(tag))
+		}
+	}
+	if visible, _ := entity.Data.Number("CustomNameVisible"); visible != 0 {
+		w.U8(3).VarInt(8).Bool(true)
 	}
 	if health, ok := generatedSnapshotHealth(entity); ok && health != 1 {
 		w.U8(9).VarInt(3).F32(health)
@@ -51,7 +60,7 @@ func generatedMobMetadata(id int32, entity world.WorldEntity) []byte {
 	}
 	age, _ := entity.Data.Number("Age")
 	baby, _ := entity.Data.Number("IsBaby")
-	zombie := entity.Type == "minecraft:zombie_villager" || entity.Type == "minecraft:drowned" || entity.Type == "minecraft:piglin"
+	zombie := entity.Type == "minecraft:zombie_villager" || entity.Type == "minecraft:drowned" || entity.Type == "minecraft:piglin" || entity.Type == "minecraft:zombified_piglin"
 	if entity.Type != "minecraft:witch" && !zombie && age < 0 || zombie && baby != 0 {
 		w.U8(16).VarInt(8).Bool(true)
 	}

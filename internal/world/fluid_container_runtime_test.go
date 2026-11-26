@@ -60,7 +60,7 @@ func TestFluidContainerSoundPacketsAgainstVanilla(t *testing.T) {
 			t.Fatal(err)
 		}
 		sink := &fluidEffectSink{}
-		w := &World{hub: sink, tickRandom: worldgen.NewLegacyRandom(1234)}
+		w := &World{hub: sink, soundRandom: worldgen.NewLegacyRandom(1234)}
 		r := fluidRuntime{world: w}
 		if err := r.FluidSound(worldgen.FeaturePosition{X: -39, Y: -53, Z: 712}, fields[0]); err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func TestFluidContainerSoundPacketsAgainstVanilla(t *testing.T) {
 		if len(sink.packets) != 1 || sink.packets[0].id != proto.SSoundEffect || !reflect.DeepEqual(sink.packets[0].data, body) {
 			t.Fatalf("native sound packet mismatch: %s %+v want %x", fields[0], sink.packets, body)
 		}
-		if sink.soundArea != [4]float64{-38.5, -52.5, 712.5, 16} || w.tickRandom.NextLong() != next {
+		if sink.soundArea != [4]float64{-38.5, -52.5, 712.5, 16} || w.soundRandom.NextLong() != next {
 			t.Fatal("wrong sound radius or runtime RNG advancement")
 		}
 		count++

@@ -47,6 +47,8 @@ var generatedEntityTypes = map[string]int32{
 	"minecraft:item_frame":      60,
 	"minecraft:armor_stand":     3,
 	"minecraft:camel":           14,
+
+	"minecraft:zombified_piglin": 127,
 }
 
 type generatedEntityKey struct {

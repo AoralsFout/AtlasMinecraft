@@ -18,13 +18,20 @@ type hurtCooldown struct {
 }
 
 type LivingDamageChange struct {
-	Entity  WorldEntity
-	Source  string
-	Removed bool
+	Entity           WorldEntity
+	Source           string
+	Removed          bool
+	Spawned          bool
+	MooshroomVariant string
+	SoundSeed        int64
 }
 type lightningImpact struct {
-	position [3]float64
-	peaceful bool
+	position      [3]float64
+	peaceful      bool
+	uuid          [16]byte
+	lastOrder     uint64
+	random        *worldgen.LegacyRandom
+	nextSoundSeed func() int64
 }
 
 func livingSize(e WorldEntity) (width, height float64) {
@@ -45,11 +52,15 @@ func lightningIntersects(pos [3]float64, e WorldEntity) bool {
 		y+height > pos[1]-3 && y < pos[1]+9 && z+width/2 > pos[2]-3 && z-width/2 < pos[2]+3
 }
 
-func hasLivingTimers(data nbt.Object) bool {
+func hasLivingTimers(data nbt.Object, traits livingTrait) bool {
 	if hp, ok := data["Health"].Value.(float32); ok && hp <= 0 {
 		return true
 	}
-	for _, key := range []string{"HurtTime", "Fire", "DeathTime"} {
+	fire, _ := data.Number("Fire")
+	if fire > 0 || (traits.FireImmune && fire < 0) {
+		return true
+	}
+	for _, key := range []string{"HurtTime", "DeathTime"} {
 		if n, _ := data.Number(key); n > 0 {
 			return true
 		}
@@ -65,9 +76,9 @@ func (ch *Chunk) indexLivingDamage() {
 	living, active, exposed := false, len(ch.hurtCooldowns) > 0, false
 	var inspect func(string, nbt.Object)
 	inspect = func(kind string, d nbt.Object) {
-		if _, ok := livingDefaults.Mobs[kind]; ok {
+		if traits, ok := livingDefaults.Mobs[kind]; ok {
 			living = true
-			active = active || hasLivingTimers(d)
+			active = active || hasLivingTimers(d, traits)
 			fire, _ := d.Number("Fire")
 			exposed = exposed || fire < 0
 		}
@@ -97,6 +108,11 @@ func (ch *Chunk) indexLivingDamage() {
 }
 
 func (w *World) strikeLivingEntities(bolt lightningImpact, publish func(LivingDamageChange)) error {
+	if err := w.ensureTickRandom(); err != nil {
+		return err
+	}
+	bolt.random = w.tickRandom
+	bolt.nextSoundSeed = w.nextSoundSeed
 	o := w.scheduledTicks
 	o.mu.Lock()
 	var targets []*chunkScheduledTicks
@@ -107,14 +123,14 @@ func (w *World) strikeLivingEntities(bolt lightningImpact, publish func(LivingDa
 	}
 	o.mu.Unlock()
 	for _, h := range targets {
-		if err := w.updateLivingChunk(h, &bolt, nil, publish); err != nil {
+		if err := w.updateLivingChunk(h, &bolt, nil, nil, publish); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (w *World) tickLivingDamage(eligible func(int32, int32) bool, publish func(LivingDamageChange)) error {
+func (w *World) tickLivingDamage(eligible func(int32, int32) bool, publish func(LivingDamageChange), deferred map[uint64][]func() error) error {
 	o := w.scheduledTicks
 	checkExposure := w.WeatherLevels().IsRaining() || len(w.bolts) > 0
 	o.mu.Lock()
@@ -134,8 +150,24 @@ func (w *World) tickLivingDamage(eligible func(int32, int32) bool, publish func(
 		// Rain/fluids may require reads from a neighboring region. Resolve them
 		// outside the owning actor, before applying the tick to its entities.
 		var burning []WorldEntity
+		later := make(map[uint64]bool)
+		var tickAfter map[[16]byte]uint64
 		err := w.fallingEntityOperation(h.x, h.z, func(_ *Region, ch *Chunk) error {
 			for _, e := range ch.entities {
+				// A replacement first ticks on the following world tick, after
+				// every surviving bolt that was already in the entity list.
+				for i := len(w.bolts) - 1; e.afterBolt != 0 && i >= 0; i-- {
+					order := w.bolts[i].order
+					if order > e.afterBolt {
+						continue
+					}
+					if tickAfter == nil {
+						tickAfter = make(map[[16]byte]uint64)
+					}
+					tickAfter[e.UUID] = order
+					later[order] = true
+					break
+				}
 				if err := visitBurning(e, checkExposure, &burning); err != nil {
 					return err
 				}
@@ -153,8 +185,17 @@ func (w *World) tickLivingDamage(eligible func(int32, int32) bool, publish func(
 			}
 			wet[e.UUID] = value
 		}
-		if err := w.updateLivingChunk(h, nil, wet, publish); err != nil {
+		var now func([16]byte) bool
+		if len(tickAfter) > 0 {
+			now = func(id [16]byte) bool { return tickAfter[id] == 0 }
+		}
+		if err := w.updateLivingChunk(h, nil, wet, now, publish); err != nil {
 			return err
+		}
+		for order := range later {
+			deferred[order] = append(deferred[order], func() error {
+				return w.updateLivingChunk(h, nil, wet, func(id [16]byte) bool { return tickAfter[id] == order }, publish)
+			})
 		}
 	}
 	return nil
@@ -221,13 +262,17 @@ func (w *World) livingWet(e WorldEntity) (bool, error) {
 	return false, nil
 }
 
-func (w *World) updateLivingChunk(h *chunkScheduledTicks, bolt *lightningImpact, wet map[[16]byte]bool, publish func(LivingDamageChange)) error {
+func (w *World) updateLivingChunk(h *chunkScheduledTicks, bolt *lightningImpact, wet map[[16]byte]bool, selected func([16]byte) bool, publish func(LivingDamageChange)) error {
 	var changes []LivingDamageChange
 	err := w.fallingEntityOperation(h.x, h.z, func(_ *Region, ch *Chunk) error {
 		var dismounted []WorldEntity
 		var discarded bool
 		for i := 0; i < len(ch.entities); {
 			e := &ch.entities[i]
+			if selected != nil && !selected(e.UUID) {
+				i++
+				continue
+			}
 			changed, removed, err := ch.updateLivingTree(e, bolt, wet, &changes, &dismounted)
 			if err != nil {
 				return err
@@ -268,9 +313,22 @@ func (ch *Chunk) updateLivingTree(e *WorldEntity, bolt *lightningImpact, wet map
 		if bolt != nil {
 			hp, _ := e.Data["Health"].Value.(float32)
 			if hp > 0 && lightningIntersects(bolt.position, *e) {
-				changed, source = thunderHit(e, traits, &cooldown, bolt)
+				switch {
+				case e.Type == "minecraft:mooshroom":
+					changed = ch.convertMooshroom(e, bolt, changes)
+				case !bolt.peaceful && (e.Type == "minecraft:pig" || e.Type == "minecraft:villager"):
+					replacement, err := lightningReplacement(*e, bolt)
+					if err != nil {
+						return false, false, err
+					}
+					*dismounted = append(*dismounted, replacement)
+					*changes = append(*changes, LivingDamageChange{Entity: replacement, Spawned: true})
+					changed, removed = true, true
+				default:
+					changed, source = thunderHit(e, traits, &cooldown)
+				}
 			}
-		} else if cooldown.ticks > 0 || cooldown.burning || hasLivingTimers(e.Data) || wet[e.UUID] {
+		} else if cooldown.ticks > 0 || cooldown.burning || hasLivingTimers(e.Data, traits) || wet[e.UUID] {
 			changed, removed, source = advanceLivingDamage(e, traits, &cooldown, wet[e.UUID])
 		}
 		flagChanged := wasBurning != cooldown.burning
@@ -285,11 +343,12 @@ func (ch *Chunk) updateLivingTree(e *WorldEntity, bolt *lightningImpact, wet map
 		}
 		if removed {
 			delete(ch.hurtCooldowns, e.UUID)
+			delete(ch.lastMooshroomBolt, e.UUID)
 		}
 		if changed || flagChanged {
 			e.Revision++
 			if removed || source != "" || flagChanged || before.Data["Health"].Value != e.Data["Health"].Value {
-				*changes = append(*changes, LivingDamageChange{*e, source, removed})
+				*changes = append(*changes, LivingDamageChange{Entity: *e, Source: source, Removed: removed})
 			}
 		}
 	}

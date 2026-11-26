@@ -198,6 +198,7 @@ type Chunk struct {
 	entities          []WorldEntity
 	entitiesDirty     bool
 	hurtCooldowns     map[[16]byte]hurtCooldown
+	lastMooshroomBolt map[[16]byte][16]byte // runtime-only, including nested passengers
 	fromAnvil         bool
 	dirty             bool
 	dirtySections     []bool

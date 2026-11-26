@@ -25,6 +25,7 @@ var entitySizes = func() map[string][2]float32 {
 const LightningEntity = "minecraft:lightning_bolt"
 
 type lightningBolt struct {
+	order              uint64
 	entity             WorldEntity
 	visualOnly         bool
 	firstFireAttempted bool // retrying a failed rod update must not resample the first flash
@@ -199,7 +200,8 @@ func (r *fluidRuntime) naturalLightning(column worldgen.FeaturePosition) error {
 func (w *World) addLightning(entity WorldEntity, visualOnly bool, seed int64) {
 	rng := worldgen.NewLegacyRandom(seed)
 	rng.NextLong()
-	w.bolts = append(w.bolts, lightningBolt{entity: entity, visualOnly: visualOnly, life: 2, flashes: 1 + rng.NextIntBound(3), random: rng})
+	w.boltOrder++
+	w.bolts = append(w.bolts, lightningBolt{order: w.boltOrder, entity: entity, visualOnly: visualOnly, life: 2, flashes: 1 + rng.NextIntBound(3), random: rng})
 }
 
 func newLightningUUID() (id [16]byte, seed int64, err error) {
@@ -220,14 +222,24 @@ func (w *World) LightningEntities() []WorldEntity {
 	return snapshots
 }
 
-func (w *World) tickLightning(eligible func(int32, int32) bool, publish func(LivingDamageChange)) error {
+func (w *World) tickLightning(eligible func(int32, int32) bool, publish func(LivingDamageChange), deferred map[uint64][]func() error) error {
 	if len(w.bolts) == 0 {
 		return nil
 	}
 	r := fluidRuntime{world: w, settings: w.fluidSettings()}
 	live := w.bolts[:0]
 	var failures []error
+	var previous uint64
+	finish := func(order uint64) {
+		for _, run := range deferred[order] {
+			if err := run(); err != nil {
+				failures = append(failures, err)
+			}
+		}
+	}
 	for _, bolt := range w.bolts {
+		finish(previous)
+		previous = bolt.order
 		xyz := bolt.entity.Position
 		p := worldgen.FeaturePosition{X: int32(math.Floor(xyz[0])), Y: int32(math.Floor(xyz[1] - 1e-6)), Z: int32(math.Floor(xyz[2]))}
 		if !eligible(p.X>>4, p.Z>>4) {
@@ -269,12 +281,13 @@ func (w *World) tickLightning(eligible func(int32, int32) bool, publish func(Liv
 			}
 		}
 		if bolt.life >= 0 && !bolt.visualOnly {
-			if err := w.strikeLivingEntities(lightningImpact{xyz, w.baseDifficulty() == 0}, publish); err != nil {
+			if err := w.strikeLivingEntities(lightningImpact{position: xyz, peaceful: w.baseDifficulty() == 0, uuid: bolt.entity.UUID, lastOrder: w.boltOrder}, publish); err != nil {
 				failures = append(failures, err)
 			}
 		}
 		live = append(live, bolt)
 	}
+	finish(previous)
 	clear(w.bolts[len(live):])
 	w.bolts = live
 	return errors.Join(failures...)

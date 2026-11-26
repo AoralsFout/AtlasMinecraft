@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 )
 
 //go:embed fluid_container_sounds_1.21.1.json
@@ -27,11 +28,11 @@ func (r *fluidRuntime) FluidSound(p worldgen.FeaturePosition, name string) error
 		return fmt.Errorf("unknown fluid container sound %s", name)
 	}
 	// Level.playSound draws a seed even when no player receives the packet.
-	seed := r.world.tickRandom.NextLong()
+	seed := r.world.nextSoundSeed()
 	// Registry holders encode the registered ID plus one. Coordinates are
 	// eighths of a block; extinguishing uses its block's center and BLOCKS=4.
 	payload := proto.NewWriter().VarInt(int32(sound[0]) + 1).VarInt(4).
-		I32(p.X*8 + 4).I32(p.Y*8 + 4).I32(p.Z*8 + 4).F32(1).F32(1).I64(int64(seed)).Payload()
+		I32(p.X*8 + 4).I32(p.Y*8 + 4).I32(p.Z*8 + 4).F32(1).F32(1).I64(seed).Payload()
 	if listeners, ok := r.world.hub.(interface {
 		SoundListeners(float64, float64, float64, float64) []PacketSink
 	}); ok {
@@ -40,6 +41,14 @@ func (r *fluidRuntime) FluidSound(p worldgen.FeaturePosition, name string) error
 		}
 	}
 	return nil
+}
+
+// Sound-producing world operations hold blockUpdateMu.
+func (w *World) nextSoundSeed() int64 {
+	if w.soundRandom == nil {
+		w.soundRandom = worldgen.NewLegacyRandom(rand.Int64())
+	}
+	return int64(w.soundRandom.NextLong())
 }
 
 func (r *fluidRuntime) FluidBlockChangeEvent(worldgen.FeaturePosition) error {

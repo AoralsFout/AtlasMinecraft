@@ -23,9 +23,10 @@ func NextRuntimeEntityID() int32 { return runtimeEntityIDs.Add(1) }
 // WorldEntity is an immutable snapshot. Data contains the complete saved NBT,
 // including unsupported fields, rather than only the client-visible fields.
 type WorldEntity struct {
-	RuntimeID   int32 // assigned at creation for weather and trap actors
-	trapRiderID int32 // protocol ID of the newly attached skeleton, before saving/reloading
-	trapTicks   int32 // entity ticks since loading, independent of saved SkeletonTrapTime
+	afterBolt   uint64 // converted mobs enter the entity tick list after existing bolts
+	RuntimeID   int32  // assigned at creation for weather and trap actors
+	trapRiderID int32  // protocol ID of the newly attached skeleton, before saving/reloading
+	trapTicks   int32  // entity ticks since loading, independent of saved SkeletonTrapTime
 	UUID        [16]byte
 	Type        string
 	Position    [3]float64

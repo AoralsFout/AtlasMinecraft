@@ -24,6 +24,8 @@ public final class RandomTickLevel extends aqu {
     public RandomTickLevel() {
         super(null, null, null, null, null, null, null, false, 0L, null, false, null);
     }
+    // Villager.thunderHit logs the level name even in an isolated probe.
+    @Override public String toString() { return "RandomTickLevel"; }
 
     private static Field field(Class<?> type, String name) throws ReflectiveOperationException {
         Field field = type.getDeclaredField(name);
@@ -229,6 +231,10 @@ public final class RandomTickLevel extends aqu {
     @Override public dwy D_() { return dimension == null ? super.D_() : dimension; }
     @Override public cpl J() { return cpn.f; }
     @Override public boolean b(bsr entity) {
+        if (conversionSource != null && entity instanceof btn mob) {
+            if (conversionSource.dJ()) throw new IllegalStateException("old mob discarded before replacement added");
+            strikeMobs.add(mob);
+        }
         if (entity instanceof cho h) horse = h;
         if (entity instanceof btm) spawnedBolt = entity;
         if (additions != null) additions.add(lt.f.b(entity.am()).toString());
@@ -328,7 +334,13 @@ public final class RandomTickLevel extends aqu {
     }
 
     public String skeletonDefaults() throws Exception {
-        ub data = bsx.aN.a(this).f(new ub());
+        return constructorDefaults(bsx.aN);
+    }
+    public String piglinDefaults() throws Exception {
+        return constructorDefaults(bsx.bx);
+    }
+    private String constructorDefaults(bsx<?> type) throws Exception {
+        ub data = type.a(this).f(new ub());
         for (String key : List.of("UUID","Pos","Rotation")) data.r(key);
         var bytes = new java.io.ByteArrayOutputStream();
         var out = new java.io.DataOutputStream(bytes);
@@ -443,7 +455,97 @@ public final class RandomTickLevel extends aqu {
     @Override public void a(bsr entity, brk source) {}
     @Override public void a(bsr entity, byte event) {}
     @Override public void a(cmx player, double x, double y, double z, jm<avo> sound, avq source,
-                            float volume, float pitch, long seed) {}
+                            float volume, float pitch, long seed) {
+        if (sound.a() == avp.oO && conversionSeeds!=null) conversionSeeds.add(seed);
+    }
+
+    private btn conversionSource;
+    private List<Long> conversionSeeds;
+
+    public List<Map<String,Object>> conversionCases(ka registries) throws Exception {
+        registry = registries;
+        dimension = registries.d(lu.aK).a(akr.a("minecraft:overworld"));
+        field(dcw.class,"J").set(this,new brl(registries));
+        var scenes = new ArrayList<Map<String,Object>>();
+        var sharedFlag = bsr.class.getDeclaredMethod("i",int.class);
+        sharedFlag.setAccessible(true);
+        for (String kind : List.of("pig","villager","mooshroom")) {
+            for (String name : List.of("peaceful","easy","normal","hard","visual","two_bolts","adult")) {
+                reset();
+                field(dcw.class,"z").set(this,new dyz(95));
+                weatherRules = new dcs();
+                weatherRules.a(dcs.b).a(false,(net.minecraft.server.MinecraftServer)null);
+                difficulty = switch (name) {case "peaceful" -> bqo.a; case "easy" -> bqo.b; case "hard" -> bqo.d; default -> bqo.c;};
+                var original = (btp)lt.f.a(akr.a("minecraft:"+kind)).a(this);
+                original.b(-40.5,70,40.5,37f,12f);
+                if (name.equals("adult")) {
+                    original.e(true);
+                    original.n(true);
+                } else {
+                    original.u(true);
+                    original.b(wz.b("Storm"));
+                    original.p(true);
+                    if (original instanceof bsl ageable) ageable.c_(-100);
+                }
+                original.f(buw.s).a(30);
+                original.v(19f);
+                if (original instanceof cfr cow && name.equals("hard")) cow.a((cfr.a)Class.forName("cfr$a").getField("b").get(null));
+                conversionSource = original;
+                strikeMobs = new ArrayList<>(List.of(original));
+                var ticks = new ArrayList<Object>();
+                var bolts = new ArrayList<btm>();
+                for (time=1;time<=15;time++) {
+                    if (time==1 || name.equals("two_bolts") && time==4) {
+                        var bolt=bsx.am.a(this);
+                        var rng=new dyz(time==1 ? 6 : 9);
+                        field(bsr.class,"ah").set(bolt,rng);
+                        bolt.b=rng.g();
+                        field(btm.class,"g").setInt(bolt,1+rng.a(3));
+                        bolt.a(name.equals("visual")); bolt.e(-40.5,70,40.5);
+                        bolts.add(bolt);
+                    }
+                    var existing=List.copyOf(strikeMobs);
+                    if (time==1) {
+                        field(dcw.class,"z").set(this,new dyz(name.equals("adult") ? 1 : 95));
+                        field(dcw.class,"f").set(this,new dyz(19));
+                    }
+                    conversionSeeds=new ArrayList<>();
+                    struck=new ArrayList<>();
+                    if (!original.dJ()) original.aw();
+                    if (!bolts.getFirst().dJ()) bolts.getFirst().l();
+                    for (btn m : existing) if (m!=original && !m.dJ()) m.aw();
+                    if (bolts.size()>1 && !bolts.get(1).dJ()) bolts.get(1).l();
+                    var live=strikeMobs.stream().filter(m -> !m.dJ()).toList();
+                    if (live.size()!=1) throw new IllegalStateException("conversion count "+live);
+                    var m=(btp)live.getFirst();
+                    var row=new LinkedHashMap<String,Object>();
+                    row.put("type",lt.f.b(m.am()).toString());
+                    row.put("original",m==original);
+                    row.put("health",m.ew()); row.put("fire",m.aC());
+                    row.put("baby",m.o_()); row.put("persistent",m.fT());
+                    row.put("noAI",m.fZ()); row.put("named",m.ai() && m.cE() && m.aj().getString().equals("Storm"));
+                    row.put("hand",lt.g.b(m.eT().g()).toString());
+                    row.put("variant",m instanceof cfr cow ? cow.t().c() : "");
+                    row.put("silent",m.aX()); row.put("invulnerable",m.cv());
+                    row.put("burning",sharedFlag.invoke(m,0));
+                    if (m instanceof ckt) {
+                        row.put("followBonus",m.f(buw.m).a(akr.a("minecraft:random_spawn_bonus")).c());
+                        row.put("leftHanded",m.ga());
+                    }
+                    row.put("sounds",conversionSeeds.size());
+                    row.put("soundSeeds",conversionSeeds);
+                    conversionSeeds=null;
+                    ticks.add(row);
+                }
+                var scene=new LinkedHashMap<String,Object>();
+                scene.put("kind",kind); scene.put("name",name);
+                scene.put("soundId",lt.b.a(avp.oO)); scene.put("ticks",ticks);
+                scenes.add(scene);
+                conversionSource=null; strikeMobs=null;
+            }
+        }
+        return scenes;
+    }
 
     public List<Map<String,Object>> hitCases(ka registries) throws Exception {
         registry = registries;
