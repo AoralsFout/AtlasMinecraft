@@ -75,6 +75,14 @@ func TestDigLogUpdatesLeavesAcrossChunkBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	p.SetPlayReady(true)
+	s.Cfg.SimulationDistance = 2
+	if err := s.TickWorlds(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ActivateWorldChunks(); err != nil {
+		t.Fatal(err)
+	}
 	if err := w.SetBlock(15, -60, 8, stateID(t, "oak_log", nil)); err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +94,6 @@ func TestDigLogUpdatesLeavesAcrossChunkBoundary(t *testing.T) {
 	if got := blockAt(t, w, 16, -60, 8).Properties["distance"]; got != "1" {
 		t.Fatalf("leaf distance changed before game tick: %s", got)
 	}
-	p.SetPlayReady(true)
-	s.Cfg.SimulationDistance = 2
 	if err := s.TickWorlds(); err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +124,9 @@ func TestStoneButtonsReleaseOnTwentiethGameTick(t *testing.T) {
 	}
 	for range 19 {
 		if err := s.TickWorlds(); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ActivateWorldChunks(); err != nil {
 			t.Fatal(err)
 		}
 	}

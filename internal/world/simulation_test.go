@@ -1,9 +1,55 @@
 package world
 
 import (
+	"atlas/internal/tickqueue"
 	"testing"
 	"time"
 )
+
+func TestServerTickAdvancesWhileReadyChunksWaitForActivation(t *testing.T) {
+	w, _ := mechanicsWorld(t)
+	for z := int32(-1); z <= 1; z++ {
+		if _, err := w.LoadChunk(2, z); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sand, err := BlockStateID("sand", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range []int32{8, 24} {
+		if err := w.SetBlock(x, -48, 8, sand); err != nil {
+			t.Fatal(err)
+		}
+	}
+	players := []SimulationPlayer{{X: 8, Z: 8}}
+	isActive := func(x int32) bool {
+		o := w.scheduledTicks
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		return o.chunks[tickqueue.ChunkKey(x, 0)].active
+	}
+	tick := func() {
+		t.Helper()
+		if err := w.TickServerPlayers(players, 1, nil, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		tick()
+	}
+	if age, _ := w.Time(); age != 2 || isActive(0) || isActive(1) {
+		t.Fatalf("age=%d; simulation tick should advance without activating terrain", age)
+	}
+	if attempted, err := w.ActivateSimulationChunk(time.Time{}); err != nil || !attempted || !isActive(0) || isActive(1) {
+		t.Fatalf("expected only the player's nearest ready chunk to activate, attempted=%t err=%v", attempted, err)
+	}
+	tick()
+	got, err := w.ReadLoadedBlocks([]BlockPosition{{8, -48, 8}, {24, -48, 8}})
+	if err != nil || got[0] != StateAir || got[1] != sand {
+		t.Fatalf("only the activated chunk should run its sand tick, states=%v err=%v", got, err)
+	}
+}
 
 func TestPlayerSimulationLoadsAndRetainsTickingNeighborhoods(t *testing.T) {
 	w, _ := mechanicsWorld(t)

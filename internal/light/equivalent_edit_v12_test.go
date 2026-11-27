@@ -1,6 +1,9 @@
 package light
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLightEquivalentEditsRetainSnapshotsAndUpdateOwnedStates(t *testing.T) {
 	e, err := New(0, 32, true)
@@ -90,5 +93,34 @@ func TestEquivalentEditRetainsImportedTrustedLighting(t *testing.T) {
 	}
 	if e.Snapshot(p) != before || !e.columns[p].trusted || e.columns[p].states[8*256] != dirt || before.Block[1][0] != 0x73 {
 		t.Fatal("equivalent edit invalidated original snapshot or imported trust")
+	}
+}
+
+// A reader must be able to use the last published lighting while a generation
+// worker holds the propagation lock.
+func TestSnapshotDoesNotWaitForPropagation(t *testing.T) {
+	e, err := New(0, 16, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Position{}
+	if _, err := e.Install(p, make([]uint16, 16*256), nil); err != nil {
+		t.Fatal(err)
+	}
+	want := e.Snapshot(p)
+	if want == nil {
+		t.Fatal("installed lighting was not published")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	result := make(chan *Data, 1)
+	go func() { result <- e.Snapshot(p) }()
+	select {
+	case got := <-result:
+		if got != want {
+			t.Fatal("snapshot changed while propagation was held")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("snapshot waited for the propagation lock")
 	}
 }

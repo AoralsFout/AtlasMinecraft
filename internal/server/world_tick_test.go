@@ -181,6 +181,9 @@ func TestScheduledTicksContinueWithDaylightStopped(t *testing.T) {
 		if err := w.PrepareDestination(context.Background(), 0, 0); err != nil {
 			t.Fatal(err)
 		}
+		if attempted, err := w.ActivateSimulationChunk(time.Time{}); err != nil || !attempted {
+			t.Fatalf("%s: expected the forced chunk to activate, err=%v", w.DimensionName(), err)
+		}
 		if err := w.SetBlock(8, 220, 8, sand); err != nil {
 			t.Fatal(err)
 		}
@@ -218,6 +221,9 @@ func TestWorldClockAdvancesAllDimensionsAndCommandsChangeOnlyDayTime(t *testing.
 				t.Fatal(err)
 			}
 		}
+	}
+	if err := s.ActivateWorldChunks(); err != nil {
+		t.Fatal(err)
 	}
 	sand, err := world.BlockStateID("minecraft:sand", nil)
 	if err != nil {
@@ -316,6 +322,9 @@ func TestPlayerSimulationFollowsMovementDimensionAndDisconnect(t *testing.T) {
 		t.Helper()
 		for range count {
 			if err := s.TickWorlds(); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.ActivateWorldChunks(); err != nil {
 				t.Fatal(err)
 			}
 		}

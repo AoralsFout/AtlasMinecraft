@@ -170,11 +170,7 @@ func WriteChunk(dir string, cx, cz int32, name string, root nbt.Tag) error {
 
 var chunkCompressors = sync.Pool{New: func() any { return zlib.NewWriter(io.Discard) }}
 
-func encodeChunkRecord(name string, root nbt.Tag) ([]byte, error) {
-	data, err := nbt.Marshal(name, root)
-	if err != nil {
-		return nil, err
-	}
+func compressChunkRecord(data []byte) ([]byte, error) {
 	var compressed bytes.Buffer
 	zw := chunkCompressors.Get().(*zlib.Writer)
 	zw.Reset(&compressed)
@@ -182,11 +178,11 @@ func encodeChunkRecord(name string, root nbt.Tag) ([]byte, error) {
 		zw.Reset(io.Discard) // do not retain a previous chunk's buffer
 		chunkCompressors.Put(zw)
 	}()
-	if _, err = zw.Write(data); err != nil {
+	if _, err := zw.Write(data); err != nil {
 		zw.Close()
 		return nil, err
 	}
-	if err = zw.Close(); err != nil {
+	if err := zw.Close(); err != nil {
 		return nil, err
 	}
 	payload := compressed.Bytes()
@@ -196,7 +192,13 @@ func encodeChunkRecord(name string, root nbt.Tag) ([]byte, error) {
 	return payload, nil
 }
 
-func writeChunkRecord(dir string, cx, cz int32, payload []byte) (err error) {
+type encodedChunk struct {
+	index   int
+	payload []byte
+	current func() bool
+}
+
+func writeChunkRecords(dir string, cx, cz int32, records []encodedChunk, replaced [1024]bool) (err error) {
 	path := regionPath(dir, cx, cz)
 	if err = os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -235,10 +237,9 @@ func writeChunkRecord(dir string, cx, cz int32, payload []byte) (err error) {
 	// how much of this region has been explored.
 	oldHeader := header
 	clear(header[:sector])
-	idx := chunkIndex(cx, cz)
 	nextSector := 2
 	for i := 0; i < 1024; i++ {
-		if i == idx {
+		if replaced[i] {
 			continue
 		}
 		loc := binary.BigEndian.Uint32(oldHeader[i*4:])
@@ -252,12 +253,16 @@ func writeChunkRecord(dir string, cx, cz int32, payload []byte) (err error) {
 		binary.BigEndian.PutUint32(header[i*4:], uint32(nextSector<<8|count))
 		nextSector += count
 	}
-	count := (len(payload) + 5 + sector - 1) / sector
-	if count > 255 || (nextSector+count)*sector > maxRegionBytes {
-		return errors.New("region exceeds size limit")
+	stamp := uint32(time.Now().Unix())
+	for _, record := range records {
+		count := (len(record.payload) + 5 + sector - 1) / sector
+		if count > 255 || (nextSector+count)*sector > maxRegionBytes {
+			return errors.New("region exceeds size limit")
+		}
+		binary.BigEndian.PutUint32(header[record.index*4:], uint32(nextSector<<8|count))
+		binary.BigEndian.PutUint32(header[sector+record.index*4:], stamp)
+		nextSector += count
 	}
-	binary.BigEndian.PutUint32(header[idx*4:], uint32(nextSector<<8|count))
-	binary.BigEndian.PutUint32(header[sector+idx*4:], uint32(time.Now().Unix()))
 	tmp, err := os.CreateTemp(dir, "atlas-region-*.tmp")
 	if err != nil {
 		return err
@@ -283,7 +288,7 @@ func writeChunkRecord(dir string, cx, cz int32, payload []byte) (err error) {
 	}
 	for i := 0; i < 1024; i++ {
 		loc := binary.BigEndian.Uint32(oldHeader[i*4:])
-		if i == idx || loc == 0 {
+		if replaced[i] || loc == 0 {
 			continue
 		}
 		at, length := int64(loc>>8)*sector, int64(loc&255)*sector
@@ -299,16 +304,19 @@ func writeChunkRecord(dir string, cx, cz int32, payload []byte) (err error) {
 		}
 	}
 	var recordHeader [5]byte
-	binary.BigEndian.PutUint32(recordHeader[:4], uint32(len(payload)+1))
 	recordHeader[4] = 2
-	if _, err = tmp.Write(recordHeader[:]); err != nil {
-		return err
-	}
-	if _, err = tmp.Write(payload); err != nil {
-		return err
-	}
-	if err = writeZeros(int64(count*sector - len(payload) - 5)); err != nil {
-		return err
+	for _, record := range records {
+		binary.BigEndian.PutUint32(recordHeader[:4], uint32(len(record.payload)+1))
+		if _, err = tmp.Write(recordHeader[:]); err != nil {
+			return err
+		}
+		if _, err = tmp.Write(record.payload); err != nil {
+			return err
+		}
+		count := (len(record.payload) + 5 + sector - 1) / sector
+		if err = writeZeros(int64(count*sector - len(record.payload) - 5)); err != nil {
+			return err
+		}
 	}
 	if err = tmp.Sync(); err != nil {
 		return err

@@ -236,6 +236,63 @@ func TestLiveLeafDistanceUpdatesFlushAtWorldSave(t *testing.T) {
 	checkSaved(after)
 }
 
+func TestLiveBubbleColumnFlushesAtWorldSave(t *testing.T) {
+	w, _ := mechanicsWorld(t)
+	const x, y, z = 8, 64, 8
+	water, err := BlockStateID("water", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	soulSand, err := BlockStateID("soul_sand", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bubble, err := BlockStateID("bubble_column", map[string]string{"drag": "false"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := func(y int32, state uint32) {
+		t.Helper()
+		w.blockUpdateMu.Lock()
+		defer w.blockUpdateMu.Unlock()
+		if _, err := w.editBlock(setBlockMsg{x: x, y: y, z: z, state: state, raw: true, flags: 2}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set(y, soulSand)
+	for dy := int32(1); dy <= 3; dy++ {
+		set(y+dy, water)
+	}
+	if err := w.scheduledTicks.scheduleBlock(worldgen.FeaturePosition{X: x, Y: y, Z: z}, "minecraft:soul_sand", 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.TickPlayers([]SimulationPlayer{{X: x, Z: z}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	checkSaved := func(want uint32) {
+		t.Helper()
+		chunk, err := w.store.vanilla.loadBlockChunk(0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for dy := int32(1); dy <= 3; dy++ {
+			if got := chunk.GetBlock(x, z, y+dy); got != want {
+				t.Fatalf("saved block at y=%d: got %d want %d", y+dy, got, want)
+			}
+		}
+	}
+	for dy := int32(1); dy <= 3; dy++ {
+		if got, err := w.BlockAt(x, y+dy, z); err != nil || got != bubble {
+			t.Fatalf("live block at y=%d: got %d want %d, err=%v", y+dy, got, bubble, err)
+		}
+	}
+	checkSaved(water)
+	if err := w.Save(); err != nil {
+		t.Fatal(err)
+	}
+	checkSaved(bubble)
+}
+
 func TestLogRemovalSchedulesLeavesInShapeOrder(t *testing.T) {
 	w, _ := mechanicsWorld(t)
 	logID, err := BlockStateID("oak_log", nil)

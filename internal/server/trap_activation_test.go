@@ -70,6 +70,9 @@ func TestSkeletonTrapActivationPacketsAgainstVanilla(t *testing.T) {
 			}
 		}
 	}
+	if err := s.World.TickScheduled(func(x, z int32) bool { return x == 0 && z == 0 }); err != nil {
+		t.Fatal(err)
+	}
 	p.SetPos(2, -59, 8, 0, 0, true)
 	p.MarkChunkSent(0, 0)
 	s.updateGeneratedEntityVisibility(p)

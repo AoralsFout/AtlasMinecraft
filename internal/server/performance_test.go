@@ -121,13 +121,16 @@ func TestPerformanceCommandsPermissionsAndReplies(t *testing.T) {
 	}
 	s.performance.startClock(time.Now().Add(-time.Second))
 	s.RecordTick(time.Now().Add(-time.Millisecond))
-	s.RecordAutosave(time.Now().Add(-20 * time.Millisecond))
+	s.RecordAutosave(AutosaveDurations{Players: 2 * time.Millisecond, Worlds: 17 * time.Millisecond, Unload: time.Millisecond})
 	s.RunCommand(admin, "status")
 	packet := <-admin.Out
 	if packet.ID != proto.SSystemChat {
 		t.Fatalf("performance result not delivered via chat: %d", packet.ID)
 	}
-	for _, text := range []string{"Memory:", "GC:", "Process CPU:", "Runtime:", "World: cached chunks 0", "autosaves: 1", performanceScope} {
+	for _, text := range []string{
+		"Memory:", "GC:", "Process CPU:", "Runtime:", "World: cached chunks 0", "autosaves: 1",
+		"Autosave phases (last): players 2.000 ms; worlds 17.000 ms; idle unload 1.000 ms", performanceScope,
+	} {
 		if !strings.Contains(string(packet.Payload), text) {
 			t.Fatalf("missing %q in status packet: %s", text, packet.Payload)
 		}

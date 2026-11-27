@@ -88,7 +88,7 @@ func (r *Region) unloadUnused(cutoff time.Time) (int, error) {
 			continue
 		}
 		persist := func(data *light.Data) error {
-			if ch.entitiesDirty {
+			if ch.entitiesDirty || ch.entitySavePending {
 				if err := persistChunkEntities(r, ch, ch.entities); err != nil {
 					return err
 				}
@@ -98,7 +98,7 @@ func (r *Region) unloadUnused(cutoff time.Time) (int, error) {
 			}
 			r.world.store.vanilla.refreshStrongholdFlags(ch)
 			r.applyLight(ch, data, false)
-			if ch.dirty {
+			if ch.dirty || ch.terrainSavePending {
 				return r.world.store.vanilla.persistChunk(ch)
 			}
 			return nil

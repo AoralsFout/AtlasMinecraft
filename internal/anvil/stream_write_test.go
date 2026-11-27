@@ -26,8 +26,13 @@ func TestStreamRewritePreservesRawRecordsTimestampsAndPadding(t *testing.T) {
 	if err := os.WriteFile(path, old, 0644); err != nil {
 		t.Fatal(err)
 	}
-	root := nbt.Tag{Type: nbt.Compound, Value: nbt.Object{"xPos": {Type: nbt.Int, Value: int32(2)}}}
-	if err := WriteChunk(dir, 2, 0, "", root); err != nil {
+	root := func(x int32) nbt.Tag {
+		return nbt.Tag{Type: nbt.Compound, Value: nbt.Object{"xPos": {Type: nbt.Int, Value: x}}}
+	}
+	err := defaultStore.WriteRegionChunks(dir, []ChunkWrite{
+		{X: 5, Root: root(5)}, {X: 2, Root: root(2)},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -47,8 +52,39 @@ func TestStreamRewritePreservesRawRecordsTimestampsAndPadding(t *testing.T) {
 			t.Fatalf("neighbor timestamp changed: %d", i)
 		}
 	}
-	if _, _, exists, err := ReadChunk(dir, 2, 0); err != nil || !exists {
-		t.Fatalf("replacement not readable: %v", err)
+	for _, x := range []int32{2, 5} {
+		_, got, exists, err := ReadChunk(dir, x, 0)
+		object, _ := got.Object()
+		value, _ := object.Number("xPos")
+		if err != nil || !exists || value != int64(x) {
+			t.Fatalf("replacement %d not readable: exists=%t xPos=%d err=%v", x, exists, value, err)
+		}
+	}
+}
+
+func TestRegionBatchValidationLeavesOriginalUntouched(t *testing.T) {
+	dir := t.TempDir()
+	root := nbt.Tag{Type: nbt.Compound, Value: nbt.Object{}}
+	if err := WriteChunk(dir, -2, 0, "original", root); err != nil {
+		t.Fatal(err)
+	}
+	path := regionPath(dir, -2, 0)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, second := range []ChunkWrite{
+		{X: -2, Root: root}, // duplicate
+		{X: 30, Root: root}, // same local slot in a different region
+		{X: -1, Root: nbt.Tag{Type: nbt.String, Value: "invalid root"}},
+	} {
+		if err := defaultStore.WriteRegionChunks(dir, []ChunkWrite{{X: -2, Root: root}, second}); err == nil {
+			t.Fatalf("invalid batch accepted: %+v", second)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("invalid batch modified the region: %v", err)
+		}
 	}
 }
 

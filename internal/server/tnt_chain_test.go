@@ -72,6 +72,9 @@ func TestServerWorldTickPublishesPrimedTNTAcrossChunks(t *testing.T) {
 			}
 		}
 	}
+	if err := s.World.TickScheduled(func(x, z int32) bool { return (x == 0 || x == 1) && z == 0 }); err != nil {
+		t.Fatal(err)
+	}
 	p.MarkChunkSent(0, 0)
 	p.MarkChunkSent(1, 0)
 	s.updateGeneratedEntityVisibility(p)

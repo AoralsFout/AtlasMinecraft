@@ -348,17 +348,20 @@ func (v *VanillaSave) persistChunk(chunk *Chunk) error {
 	if err != nil {
 		return err
 	}
+	chunk.terrainSaveEpoch.Add(1)
 	if err := v.regions.WriteChunk(v.regionDir, chunk.cx, chunk.cz, name, root); err != nil {
 		return err
 	}
+	chunk.markAnvilSaved()
+	return nil
+}
+
+func (chunk *Chunk) markAnvilSaved() {
 	if chunk.scheduledTicks != nil {
 		chunk.scheduledTicks.saved(chunk.tickSaveRevision, chunk.tickSaveTime)
 	}
-	v.mu.Lock()
-	defer v.mu.Unlock()
 	chunk.dirty = false
 	clear(chunk.dirtySections)
-	return nil
 }
 
 func (v *VanillaSave) generateFlat(cx, cz int32) (*Chunk, error) {

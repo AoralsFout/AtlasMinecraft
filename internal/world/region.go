@@ -3,7 +3,6 @@ package world
 import (
 	"atlas/internal/light"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 )
@@ -215,6 +214,12 @@ func (r *Region) run() {
 			msg.result <- r.portalChunkSnapshot(msg)
 		case saveRegion:
 			msg.result <- r.saveChunks()
+		case snapshotRegionSave:
+			save, err := r.collectChunkSaves(true)
+			msg.result <- regionSaveSnapshot{save: save, err: err}
+		case finishRegionSave:
+			r.finishChunkSaves(msg.save, msg.writes, true)
+			close(msg.done)
 		case simulationChunkLoads:
 			for _, key := range msg.chunks {
 				if r.chunks[key] == nil && !r.genQueued[key] && r.unavailable[key] == nil {
@@ -387,30 +392,6 @@ func (r *Region) run() {
 			ch.lastAccess = time.Now()
 		}
 	}
-}
-
-func (r *Region) saveChunks() error {
-	var combined error
-	if r.world.store != nil {
-		for key, ch := range r.chunks {
-			if ch.entitiesDirty {
-				combined = errors.Join(combined, persistChunkEntities(r, ch, ch.entities))
-			}
-			if ch.scheduledTicks != nil && ch.scheduledTicks.needsSave() {
-				ch.dirty = true
-			}
-			r.world.store.vanilla.refreshStrongholdFlags(ch)
-			if r.world.lighting != nil {
-				r.applyLight(ch, r.world.lighting.Snapshot(light.Position{X: key.x, Z: key.z}), false)
-			}
-			if ch.dirty {
-				if err := r.world.store.vanilla.persistChunk(ch); err != nil {
-					combined = errors.Join(combined, fmt.Errorf("chunk %d,%d: %w", key.x, key.z, err))
-				}
-			}
-		}
-	}
-	return combined
 }
 
 func (r *Region) applyBlockEdit(ch *Chunk, msg setBlockMsg) error {

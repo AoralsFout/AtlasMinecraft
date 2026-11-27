@@ -72,6 +72,33 @@ func spawnTestFallingBlock(t *testing.T, block string) (*World, string, WorldEnt
 	return w, dir, entities[0]
 }
 
+func TestLiveFallingMotionFlushesAtWorldSave(t *testing.T) {
+	w, _, initial := spawnTestFallingSand(t)
+	eligible := func(x, z int32) bool { return x == -2 && z == 2 }
+	w.blockUpdateMu.Lock()
+	err := w.tickFallingEntitiesLocked(eligible, true)
+	w.blockUpdateMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	moving := w.FallingEntities()
+	if len(moving) != 1 || moving[0].UUID != initial.UUID || moving[0].Position[1] >= initial.Position[1] {
+		t.Fatal("the airborne position was not published")
+	}
+	checkSaved := func(want [3]float64) {
+		t.Helper()
+		_, _, saved, err := w.store.vanilla.readEntityChunk(-2, 2)
+		if err != nil || len(saved) != 1 || saved[0].UUID != initial.UUID || saved[0].Position != want {
+			t.Fatalf("saved falling entity does not match position %v, err=%v", want, err)
+		}
+	}
+	checkSaved(initial.Position)
+	if err := w.Save(); err != nil {
+		t.Fatal(err)
+	}
+	checkSaved(moving[0].Position)
+}
+
 // Compare the persisted world implementation with the native entity's complete
 // per-tick NBT, including a reload while airborne and a paused entity ticket.
 func TestFallingEntityReloadAgainstVanilla(t *testing.T) {

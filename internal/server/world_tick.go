@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 )
 
 // TickWorlds advances all dimensions using one snapshot of online players.
@@ -84,6 +85,36 @@ func (s *Server) TickWorlds() error {
 		s.publishTickingEntities(w, players)
 	}
 	return errors.Join(errs...)
+}
+
+// ActivateWorldChunks shares one allowance across dimensions and all catch-up
+// ticks in a clock iteration. A long chunk can resume on the next pass.
+func (s *Server) ActivateWorldChunks() error {
+	const maxChunks = 4
+	const budget = 5 * time.Millisecond
+	s.worldClockMu.Lock()
+	defer s.worldClockMu.Unlock()
+	worlds := s.Worlds()
+	deadline := time.Now().Add(budget)
+	var failures []error
+	var attempts, idleWorlds int
+	for attempts < maxChunks && idleWorlds < len(worlds) && (attempts == 0 || time.Now().Before(deadline)) {
+		w := worlds[s.nextActivationWorld]
+		s.nextActivationWorld = (s.nextActivationWorld + 1) % len(worlds)
+		started := time.Now()
+		attempted, err := w.ActivateSimulationChunk(deadline)
+		if !attempted {
+			idleWorlds++
+			continue
+		}
+		attempts++
+		idleWorlds = 0
+		s.performance.recordChunkActivation(time.Since(started))
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", w.DimensionName(), err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func (s *Server) setDayTime(ticks int64, relative bool) int64 {

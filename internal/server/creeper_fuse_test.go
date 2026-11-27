@@ -154,6 +154,9 @@ func TestCreeperExplosionAgainstDedicatedServer(t *testing.T) {
 					}
 				}
 			}
+			if err := s.World.TickScheduled(func(x, z int32) bool { return x >= 0 && x <= 1 && z >= 0 && z <= 1 }); err != nil {
+				t.Fatal(err)
+			}
 			p.MarkChunkSent(0, 0)
 			s.updateGeneratedEntityVisibility(p)
 			for len(p.Out) > 0 {

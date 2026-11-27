@@ -1,6 +1,7 @@
 package world
 
 import (
+	"atlas/internal/worldgen"
 	"context"
 	"maps"
 	"math"
@@ -27,23 +28,32 @@ type simulationTickets struct {
 	chunks   map[chunkKey]simulationChunkTicket
 }
 type simulationChunkTicket struct {
-	distance int32 // generation priority: nearest source
-	level    int32 // strongest ticket: 31 entity, 32 block, 33 loaded
+	distance           int32 // generation priority: nearest source
+	level              int32 // strongest ticket: 31 entity, 32 block, 33 loaded
+	activationPriority int32 // player distance first, then other ticket sources
 }
 
-const worldChunkLimit = 30_000_000 / 16
+const (
+	worldChunkLimit              = 30_000_000 / 16
+	backgroundActivationPriority = 1 << 30
+)
 
-func (t *simulationTickets) addCenter(center ChunkPosition, entityRadius int32) {
+func (t *simulationTickets) addCenter(center ChunkPosition, entityRadius int32, player bool) {
 	// Border chunks still need their two outer rings for readiness.
 	radius := entityRadius + 2
 	for x := max(center.X-radius, -worldChunkLimit-2); x <= min(center.X+radius, worldChunkLimit+1); x++ {
 		for z := max(center.Z-radius, -worldChunkLimit-2); z <= min(center.Z+radius, worldChunkLimit+1); z++ {
 			key := chunkKey{x, z}
 			d := max(x-center.X, center.X-x, z-center.Z, center.Z-z)
-			ticket := simulationChunkTicket{distance: d, level: 31 + d - entityRadius}
+			priority := d
+			if !player {
+				priority += backgroundActivationPriority
+			}
+			ticket := simulationChunkTicket{distance: d, level: 31 + d - entityRadius, activationPriority: priority}
 			if old, ok := t.chunks[key]; ok {
 				ticket.distance = min(old.distance, ticket.distance)
 				ticket.level = min(old.level, ticket.level)
+				ticket.activationPriority = min(old.activationPriority, ticket.activationPriority)
 			}
 			t.chunks[key] = ticket
 		}
@@ -67,16 +77,16 @@ func (w *World) publishSimulationTickets(centers map[ChunkPosition]struct{}, dis
 	}
 	tickets := &simulationTickets{spawn: spawn, centers: centers, distance: distance, chunks: make(map[chunkKey]simulationChunkTicket)}
 	if spawn.radius > 0 {
-		tickets.addCenter(spawn.center, spawn.radius-1)
+		tickets.addCenter(spawn.center, spawn.radius-1, false)
 	}
 	for center := range centers {
-		tickets.addCenter(center, distance)
+		tickets.addCenter(center, distance, true)
 	}
 	for center := range w.forced.positions {
-		tickets.addCenter(center, 0)
+		tickets.addCenter(center, 0, false)
 	}
 	for center := range w.portalTicks {
-		tickets.addCenter(center, 1) // PORTAL at level 30
+		tickets.addCenter(center, 1, false) // PORTAL at level 30
 	}
 	w.simulation.Store(tickets)
 	select {
@@ -94,6 +104,7 @@ func (w *World) TickPlayers(players []SimulationPlayer, distance int32) error {
 
 // TickServerPlayers advances the clock for the Overworld and runs each
 // derived dimension's queues at the same age. The server ticks Overworld first.
+// New chunks are activated separately between server ticks.
 func (w *World) TickServerPlayers(players []SimulationPlayer, distance int32, publish WeatherPublisher, lightningAdded func(bolt WorldEntity, trap *WorldEntity), trapChanged func(TrapChange), livingChanged func(LivingDamageChange)) error {
 	return w.tickPlayers(players, distance, true, publish, lightningAdded, trapChanged, livingChanged)
 }
@@ -148,7 +159,50 @@ func (w *World) entityTickEligible(x, z int32) bool {
 		return false
 	}
 	d, ok := tickets.chunks[chunkKey{x, z}]
-	return ok && d.level <= 31 && w.scheduledTicks.neighborhoodLoaded(x, z, 2)
+	return ok && d.level <= 31 && w.scheduledTicks.entityTickReady(x, z)
+}
+
+// ActivateSimulationChunk works on one ready chunk at the current world age.
+// A deadline pauses between complete callbacks. The queues remain packed
+// until postprocessing finishes. World edits can run between passes.
+func (w *World) ActivateSimulationChunk(deadline time.Time) (attempted bool, err error) {
+	w.blockUpdateMu.Lock()
+	defer w.blockUpdateMu.Unlock()
+	select {
+	case <-w.done:
+		return false, nil
+	default:
+	}
+	tickets := w.simulation.Load()
+	if tickets == nil {
+		return false, nil
+	}
+	h := w.scheduledTicks.nextActivation(tickets)
+	if h == nil {
+		return false, nil
+	}
+	if err := w.ensureTickRandom(); err != nil {
+		return true, err
+	}
+	r := &fluidRuntime{world: w, settings: w.fluidSettings(), deferBlockSaves: true}
+	if h.postIndex < len(h.post) {
+		// Seed reads in one batch per region. Fluid propagation may reach
+		// beyond these cells and reads additional positions on demand.
+		marks := h.post[h.postIndex:min(h.postIndex+64, len(h.post))]
+		r.blockReads = make(map[worldgen.FeaturePosition]uint32, len(marks))
+		points := make([]BlockPosition, 0, len(marks))
+		for _, p := range marks {
+			if r.InWorld(p) {
+				points = append(points, BlockPosition(p))
+			}
+		}
+		if ids, err := w.ReadLoadedBlocks(points); err == nil {
+			for i, p := range points {
+				r.blockReads[worldgen.FeaturePosition(p)] = ids[i]
+			}
+		}
+	}
+	return true, w.scheduledTicks.activateChunk(h, r.postProcess, true, deadline)
 }
 
 // RandomTickEligible reports the 1.21.1 chunk gate under the latest player

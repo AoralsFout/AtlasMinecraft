@@ -77,9 +77,21 @@ func (s *Server) Worlds() []*world.World {
 func (s *Server) SaveWorlds() error {
 	s.worldClockMu.Lock()
 	defer s.worldClockMu.Unlock()
+	return s.saveWorlds(false)
+}
+
+func (s *Server) AutosaveWorlds() error {
+	return s.saveWorlds(true)
+}
+
+func (s *Server) saveWorlds(background bool) error {
 	var errs []error
 	for _, w := range s.Worlds() {
-		if err := w.Save(); err != nil {
+		save := w.Save
+		if background {
+			save = w.Autosave
+		}
+		if err := save(); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", w.DimensionName(), err))
 		}
 	}

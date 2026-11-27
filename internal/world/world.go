@@ -542,6 +542,16 @@ func (w *World) SetPlayerSpawn(uuid [16]byte, x, y, z int32, angle float32) erro
 func (w *World) Save() error {
 	w.blockUpdateMu.Lock()
 	defer w.blockUpdateMu.Unlock()
+	return w.save(false)
+}
+
+// Autosave snapshots chunks through their actors and writes detached records.
+// The periodic caller runs it outside the world clock.
+func (w *World) Autosave() error {
+	return w.save(true)
+}
+
+func (w *World) save(background bool) error {
 	w.saveMu.Lock()
 	defer w.saveMu.Unlock()
 	if w.store == nil {
@@ -553,7 +563,14 @@ func (w *World) Save() error {
 		regions = append(regions, r)
 	}
 	w.mu.Unlock()
+	var failures []error
 	for _, r := range regions {
+		if background {
+			if err := w.saveRegionInBackground(r); err != nil {
+				failures = append(failures, err)
+			}
+			continue
+		}
 		result := make(chan error, 1)
 		select {
 		case r.mailbox <- saveRegion{result: result}:
@@ -572,7 +589,37 @@ func (w *World) Save() error {
 	w.stateMu.RLock()
 	m := w.meta
 	w.stateMu.RUnlock()
-	return errors.Join(w.store.SaveMeta(m), w.randomSequences.save())
+	failures = append(failures, w.store.SaveMeta(m), w.randomSequences.save())
+	return errors.Join(failures...)
+}
+
+func (w *World) saveRegionInBackground(r *Region) error {
+	ready := make(chan regionSaveSnapshot, 1)
+	select {
+	case r.mailbox <- snapshotRegionSave{result: ready}:
+	case <-w.done:
+		return ErrWorldClosed
+	}
+	var snapshot regionSaveSnapshot
+	select {
+	case snapshot = <-ready:
+	case <-w.done:
+		return ErrWorldClosed
+	}
+	result := snapshot.save.write(w.store.vanilla)
+	failure := errors.Join(snapshot.err, result.entities, result.terrain)
+	done := make(chan struct{})
+	select {
+	case r.mailbox <- finishRegionSave{save: snapshot.save, writes: result, done: done}:
+	case <-w.done:
+		return errors.Join(failure, ErrWorldClosed)
+	}
+	select {
+	case <-done:
+		return failure
+	case <-w.done:
+		return errors.Join(failure, ErrWorldClosed)
+	}
 }
 
 func (w *World) Close() error {

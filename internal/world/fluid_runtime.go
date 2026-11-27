@@ -56,7 +56,12 @@ func (w *World) prepareScheduledLocked(eligible func(int32, int32) bool, live bo
 	for _, prepare := range []func() error{
 		func() error { return r.recoverFallingSpawns(live) },
 		func() error { return r.recoverBlockDrops(live) },
-		func() error { return o.activateChunks(eligible, r.postProcess, live) },
+		func() error {
+			if eligible == nil {
+				return nil
+			}
+			return o.activateChunks(eligible, r.postProcess, live)
+		},
 	} {
 		if err := prepare(); err != nil {
 			if !live {
@@ -72,9 +77,16 @@ func (r *fluidRuntime) tickScheduledQueues(eligible func(int32, int32) bool, blo
 	w := r.world
 	o := w.scheduledTicks
 	var failures []error
+	terrain := &fluidRuntime{world: w, settings: r.settings, deferBlockSaves: live}
 	if blocks {
 		if err := tickOwnedQueue(o, o.blocks, &o.currentBlock, "block", 65536, eligible, func(t tickqueue.Scheduled[string]) error {
-			return worldgen.TickScheduledBlock(r, worldgen.FeaturePosition{X: t.Position.X, Y: t.Position.Y, Z: t.Position.Z}, t.Type)
+			runtime := r
+			switch t.Type {
+			case "minecraft:bubble_column", "minecraft:magma_block", "minecraft:soul_sand":
+				// One bubble tick may write an entire water column.
+				runtime = terrain
+			}
+			return worldgen.TickScheduledBlock(runtime, worldgen.FeaturePosition{X: t.Position.X, Y: t.Position.Y, Z: t.Position.Z}, t.Type)
 		}, live); err != nil {
 			if !live {
 				return err
@@ -82,9 +94,14 @@ func (r *fluidRuntime) tickScheduledQueues(eligible func(int32, int32) bool, blo
 			failures = append(failures, err)
 		}
 	}
+	if live {
+		// The world lock keeps these reads coherent for this phase. Keep
+		// writes dirty for the normal chunk save, as with generation updates.
+		terrain.blockReads = make(map[worldgen.FeaturePosition]uint32)
+	}
 	if err := tickOwnedQueue(o, o.level, &o.current, "fluid", 65536, eligible, func(t tickqueue.Scheduled[worldgen.FluidType]) error {
 		p := worldgen.FeaturePosition{X: t.Position.X, Y: t.Position.Y, Z: t.Position.Z}
-		state, err := r.BlockAt(p)
+		state, err := terrain.BlockAt(p)
 		if err != nil {
 			return err
 		}
@@ -95,7 +112,7 @@ func (r *fluidRuntime) tickScheduledQueues(eligible func(int32, int32) bool, blo
 		if fluid.Type != t.Type {
 			return nil
 		} // exact registered type, not family
-		return worldgen.TickFluid(r, p, r.settings, w.tickRandom)
+		return worldgen.TickFluid(terrain, p, r.settings, w.tickRandom)
 	}, live); err != nil {
 		failures = append(failures, err)
 	}
@@ -158,6 +175,9 @@ type fluidRuntime struct {
 	fallingDrops   []WorldEntity // staged until the falling entity's atomic save
 	deferLeafSaves bool
 	blastChunks    map[chunkKey]bool
+
+	blockReads      map[worldgen.FeaturePosition]uint32 // only while holding blockUpdateMu
+	deferBlockSaves bool
 }
 type fluidNeighborUpdate struct {
 	position     worldgen.FeaturePosition
@@ -193,8 +213,24 @@ func (r *fluidRuntime) BlockAt(p worldgen.FeaturePosition) (worldgen.SurfaceBloc
 	if !r.InWorld(p) {
 		return worldgen.SurfaceBlockState{Name: "minecraft:void_air"}, nil
 	}
-	state, _, err := r.world.loadedState(BlockPosition{X: p.X, Y: p.Y, Z: p.Z})
-	return worldgen.SurfaceBlockState{Name: state.Name, Properties: state.Properties}, err
+	state, _, err := r.readBlock(p)
+	return state, err
+}
+
+func (r *fluidRuntime) readBlock(p worldgen.FeaturePosition) (worldgen.SurfaceBlockState, uint32, error) {
+	id, cached := r.blockReads[p]
+	if !cached {
+		ids, err := r.world.ReadLoadedBlocks([]BlockPosition{BlockPosition(p)})
+		if err != nil {
+			return worldgen.SurfaceBlockState{}, 0, err
+		}
+		id = ids[0]
+		if r.blockReads != nil {
+			r.blockReads[p] = id
+		}
+	}
+	state, err := BlockStateByID(id)
+	return worldgen.SurfaceBlockState{Name: state.Name, Properties: state.Properties}, id, err
 }
 func (r *fluidRuntime) SetBlock(p worldgen.FeaturePosition, s worldgen.SurfaceBlockState) error {
 	return r.SetFluidBlock(p, s, 2)
@@ -237,11 +273,7 @@ func (r *fluidRuntime) set(p worldgen.FeaturePosition, s worldgen.SurfaceBlockSt
 	if !r.InWorld(p) {
 		return nil
 	}
-	before, err := r.BlockAt(p)
-	if err != nil {
-		return err
-	}
-	old, err := BlockStateID(before.Name, before.Properties)
+	before, old, err := r.readBlock(p)
 	if err != nil {
 		return err
 	}
@@ -258,11 +290,15 @@ func (r *fluidRuntime) set(p worldgen.FeaturePosition, s worldgen.SurfaceBlockSt
 	if r.blastChunks != nil {
 		r.blastChunks[chunkKey{p.X >> 4, p.Z >> 4}] = true
 	}
+	delete(r.blockReads, p)
 	if _, err := r.world.editBlock(setBlockMsg{
 		x: p.X, y: p.Y, z: p.Z, state: id, expected: &old, raw: true, flags: flags,
-		deferSave: r.blastChunks != nil || r.deferLeafSaves && leafDistanceOnly,
+		deferSave: r.deferBlockSaves || r.blastChunks != nil || r.deferLeafSaves && leafDistanceOnly,
 	}); err != nil {
 		return err
+	}
+	if r.blockReads != nil {
+		r.blockReads[p] = id
 	}
 	// LevelChunk calls onPlace even for another state of the same liquid.
 	if before.Name != s.Name && (s.Name == "minecraft:fire" || s.Name == "minecraft:soul_fire") {
@@ -282,11 +318,7 @@ func (r *fluidRuntime) set(p worldgen.FeaturePosition, s worldgen.SurfaceBlockSt
 	if err := worldgen.NotifyLiquidBlock(r, p, s, r.settings); err != nil {
 		return err
 	}
-	current, err := r.BlockAt(p)
-	if err != nil {
-		return err
-	}
-	currentID, err := BlockStateID(current.Name, current.Properties)
+	_, currentID, err := r.readBlock(p)
 	if err != nil {
 		return err
 	}

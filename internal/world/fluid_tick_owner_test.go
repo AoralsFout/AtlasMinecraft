@@ -12,6 +12,44 @@ import (
 	"time"
 )
 
+func TestInterruptedActivationReloadsOnlyRemainingPostprocessing(t *testing.T) {
+	o := newScheduledTickOwner(100)
+	c := NewChunk(-1, 2)
+	c.anvilRoot = nbt.Tag{Type: nbt.Compound, Value: nbt.Object{
+		"PostProcessing": {Type: nbt.List, ListType: nbt.List, Value: []nbt.Tag{
+			{Type: nbt.List, ListType: nbt.Short, Value: []nbt.Tag{{Type: nbt.Short, Value: int16(0x123)}}},
+			{Type: nbt.List, ListType: nbt.Short, Value: []nbt.Tag{
+				{Type: nbt.Short, Value: int16(0x345)}, {Type: nbt.Short, Value: int16(0x345)},
+			}},
+		}},
+	}}
+	var visited []worldgen.FeaturePosition
+	process := func(p worldgen.FeaturePosition) error {
+		visited = append(visited, p)
+		return nil
+	}
+	h := o.register(c)
+	if err := o.activateChunk(h, process, true, time.Now().Add(-time.Second)); err != nil || h.active || !h.needsSave() {
+		t.Fatalf("paused activation should remain pending and save its progress, err=%v", err)
+	}
+	_, _, post, _, _, _ := h.snapshot()
+	root, _ := c.anvilRoot.Object()
+	root["PostProcessing"] = post
+	h.unregister()
+	h = o.register(c)
+	if err := o.activateChunk(h, process, true, time.Time{}); err != nil || !h.active {
+		t.Fatalf("activate after reload: active=%t err=%v", h.active, err)
+	}
+	want := []worldgen.FeaturePosition{
+		{X: -13, Y: MinY + 2, Z: 33},
+		{X: -11, Y: MinY + 20, Z: 35},
+		{X: -11, Y: MinY + 20, Z: 35},
+	}
+	if !reflect.DeepEqual(visited, want) {
+		t.Fatalf("postprocessing reloaded in wrong order: got %v want %v", visited, want)
+	}
+}
+
 func diskFluidTicks(t *testing.T, dir string, x, z int32) []tickqueue.Saved[worldgen.FluidType] {
 	t.Helper()
 	_, tag, ok, err := anvil.ReadChunk(filepath.Join(dir, "region"), x, z)
@@ -113,7 +151,7 @@ func TestFluidQueueActivationSaveUnloadAndRestart(t *testing.T) {
 	if count, err := w.UnloadIdle(0); err != nil || count != 9 {
 		t.Fatal("unload", count, err)
 	}
-	if len(w.scheduledTicks.chunks) != 0 || len(w.scheduledTicks.loadOrder) != 0 {
+	if len(w.scheduledTicks.chunks) != 0 || len(w.scheduledTicks.loadOrder) != 0 || len(w.scheduledTicks.activationReady) != 0 {
 		t.Fatal("unloaded scheduling handles retained")
 	}
 	w.AdvanceTime(100)

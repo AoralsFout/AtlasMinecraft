@@ -1,6 +1,7 @@
 package world
 
 import (
+	"atlas/internal/anvil"
 	"atlas/internal/nbt"
 	"atlas/internal/worldgen"
 	"context"
@@ -116,23 +117,36 @@ func (r *Region) runFallingEntityOperation(op fallingEntityOperation) {
 
 func persistChunkEntities(r *Region, ch *Chunk, entities []WorldEntity) error {
 	v := r.world.store.vanilla
-	name, root, _, err := v.readEntityChunk(ch.cx, ch.cz)
+	record, err := v.entityChunkWrite(ch, entities)
 	if err != nil {
 		return err
+	}
+	ch.entitySaveEpoch.Add(1)
+	if err := v.regions.WriteChunk(v.entityDirectory(), record.X, record.Z, record.Name, record.Root); err != nil {
+		return err
+	}
+	ch.entities = entities
+	r.markEntitiesSaved(ch)
+	return nil
+}
+
+func (v *VanillaSave) entityChunkWrite(ch *Chunk, entities []WorldEntity) (anvil.ChunkWrite, error) {
+	name, root, _, err := v.readEntityChunk(ch.cx, ch.cz)
+	if err != nil {
+		return anvil.ChunkWrite{}, err
 	}
 	list := make([]nbt.Tag, len(entities))
 	for i, e := range entities {
 		list[i] = nbt.Tag{Type: nbt.Compound, Value: e.Data}
 	}
 	root["Entities"] = nbt.Tag{Type: nbt.List, ListType: nbt.Compound, Value: list}
-	if err := v.regions.WriteChunk(v.entityDirectory(), ch.cx, ch.cz, name, nbt.Tag{Type: nbt.Compound, Value: root}); err != nil {
-		return err
-	}
-	ch.entities = entities
+	return anvil.ChunkWrite{X: ch.cx, Z: ch.cz, Name: name, Root: nbt.Tag{Type: nbt.Compound, Value: root}}, nil
+}
+
+func (r *Region) markEntitiesSaved(ch *Chunk) {
 	ch.entitiesDirty = false
 	ch.indexLivingDamage()
 	r.world.fallingEntities.register(ch)
-	return nil
 }
 
 const fallingJournal = "AtlasPendingFallingEntities"
@@ -332,7 +346,7 @@ func (w *World) tickFallingEntitiesLocked(eligible func(int32, int32) bool, live
 		if !eligible(key.x, key.z) {
 			continue
 		}
-		if err := w.tickFallingEntity(r, key); err != nil {
+		if err := w.tickFallingEntity(r, key, live); err != nil {
 			if !live {
 				return err
 			}
@@ -342,7 +356,7 @@ func (w *World) tickFallingEntitiesLocked(eligible func(int32, int32) bool, live
 	return errors.Join(failures...)
 }
 
-func (w *World) tickFallingEntity(r *fluidRuntime, key fallingEntityKey) error {
+func (w *World) tickFallingEntity(r *fluidRuntime, key fallingEntityKey, live bool) error {
 	var entity WorldEntity
 	found := false
 	if err := w.fallingEntityOperation(key.x, key.z, func(_ *Region, ch *Chunk) error {
@@ -404,6 +418,14 @@ func (w *World) tickFallingEntity(r *fluidRuntime, key fallingEntityKey) error {
 			} else if !removed {
 				entities = append(entities, next)
 			}
+		}
+		if live && !removed {
+			// Airborne motion is regular entity state. Leave the new
+			// snapshot dirty for save/unload, but publish its position now.
+			ch.entities = entities
+			ch.entitiesDirty = true
+			w.fallingEntities.register(ch)
+			return nil
 		}
 		// One native entity-region replacement commits both source entity
 		// removal and its item. Failed writes retain the airborne snapshot;

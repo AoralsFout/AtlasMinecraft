@@ -71,12 +71,15 @@ func TestForceLoadWorldClockAndRestart(t *testing.T) {
 		for {
 			_, err := s.World.ReadLoadedBlocks(points)
 			if err == nil {
-				return
+				break
 			}
 			if time.Now().After(deadline) {
 				t.Fatal("forced neighborhood unavailable", err)
 			}
 			time.Sleep(10 * time.Millisecond)
+		}
+		if attempted, err := s.World.ActivateSimulationChunk(time.Time{}); err != nil || !attempted {
+			t.Fatalf("forced chunk did not activate, err=%v", err)
 		}
 	}
 	ready()

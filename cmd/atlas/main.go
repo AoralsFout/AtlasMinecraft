@@ -267,12 +267,19 @@ func runWorldClock(ctx context.Context, s *server.Server) {
 	lastTickError := ""
 	save := time.NewTicker(30 * time.Second)
 	defer save.Stop()
+	var autosaveDone <-chan struct{}
+	defer func() {
+		if autosaveDone != nil {
+			<-autosaveDone
+		}
+	}()
 	for {
 		select {
 		case <-tick.C:
 			started := time.Now()
 			ticks := int64(min(started.Sub(lastTick)/tickInterval, maxTicksPerWake))
-			for range ticks {
+			var advanced int64
+			for advanced < ticks && (advanced == 0 || time.Since(started) < tickInterval) {
 				if ctx.Err() != nil {
 					return
 				}
@@ -285,29 +292,52 @@ func runWorldClock(ctx context.Context, s *server.Server) {
 					lastTickError = ""
 				}
 				lastTick = lastTick.Add(tickInterval)
+				advanced++
 			}
-			if ticks > 0 {
-				s.TickPortals(ticks)
+			if advanced > 0 {
+				s.TickPortals(advanced)
+				if err := s.ActivateWorldChunks(); err != nil {
+					slog.Error("chunk activation failed", "error", err)
+				}
 			}
 			s.RecordTick(started)
 		case <-save.C:
-			started := time.Now()
-			s.SavePlayers()
-			if err := s.SaveWorlds(); err != nil {
-				slog.Error("periodic world save failed", "error", err)
-			} else {
-				slog.Debug("world metadata saved", "component", "world")
+			if autosaveDone == nil {
+				done := make(chan struct{})
+				autosaveDone = done
+				go func() {
+					defer close(done)
+					runAutosave(s)
+				}()
 			}
-			for _, dimensionWorld := range s.Worlds() {
-				if count, err := dimensionWorld.UnloadIdle(time.Minute); err != nil {
-					slog.Error("idle chunk unload failed", "dimension", dimensionWorld.DimensionName(), "error", err)
-				} else if count > 0 {
-					slog.Debug("idle chunks unloaded", "dimension", dimensionWorld.DimensionName(), "chunks", count)
-				}
-			}
-			s.RecordAutosave(started)
+		case <-autosaveDone:
+			autosaveDone = nil
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+func runAutosave(s *server.Server) {
+	started := time.Now()
+	s.SavePlayers()
+	worldSaveStarted := time.Now()
+	if err := s.AutosaveWorlds(); err != nil {
+		slog.Error("periodic world save failed", "error", err)
+	} else {
+		slog.Debug("world metadata saved", "component", "world")
+	}
+	unloadStarted := time.Now()
+	for _, dimensionWorld := range s.Worlds() {
+		if count, err := dimensionWorld.UnloadIdle(time.Minute); err != nil {
+			slog.Error("idle chunk unload failed", "dimension", dimensionWorld.DimensionName(), "error", err)
+		} else if count > 0 {
+			slog.Debug("idle chunks unloaded", "dimension", dimensionWorld.DimensionName(), "chunks", count)
+		}
+	}
+	s.RecordAutosave(server.AutosaveDurations{
+		Players: worldSaveStarted.Sub(started),
+		Worlds:  unloadStarted.Sub(worldSaveStarted),
+		Unload:  time.Since(unloadStarted),
+	})
 }

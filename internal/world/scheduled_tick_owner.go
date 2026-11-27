@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // scheduledTickOwner owns both scheduled block and fluid queues. Their levels
@@ -22,6 +23,7 @@ type scheduledTickOwner struct {
 	level           *tickqueue.Level[worldgen.FluidType]
 	blocks          *tickqueue.Level[string]
 	chunks          map[uint64]*chunkScheduledTicks
+	activationReady map[*chunkScheduledTicks]struct{}
 	loadOrder       []*chunkScheduledTicks
 	trapChunks      []*chunkScheduledTicks
 	explosionChunks []*chunkScheduledTicks
@@ -42,6 +44,7 @@ type chunkScheduledTicks struct {
 	queue                   *tickqueue.Chunk[worldgen.FluidType]
 	blocks                  *tickqueue.Chunk[string]
 	x, z                    int32
+	minY                    int32
 	active                  bool
 	post                    []worldgen.FeaturePosition
 	postIndex               int
@@ -60,7 +63,10 @@ type chunkScheduledTicks struct {
 const simulationRetryDelay = 20 // game ticks between retries of a failed live callback
 
 func newScheduledTickOwner(time int64) *scheduledTickOwner {
-	return &scheduledTickOwner{level: tickqueue.NewLevel[worldgen.FluidType](), blocks: tickqueue.NewLevel[string](), chunks: make(map[uint64]*chunkScheduledTicks), now: time}
+	return &scheduledTickOwner{
+		level: tickqueue.NewLevel[worldgen.FluidType](), blocks: tickqueue.NewLevel[string](),
+		chunks: make(map[uint64]*chunkScheduledTicks), activationReady: make(map[*chunkScheduledTicks]struct{}), now: time,
+	}
 }
 
 // ChunkSerializer uses the optional registry lookup, including air. It accepts
@@ -88,7 +94,7 @@ func parseScheduledFluid(name string) (worldgen.FluidType, bool) {
 
 func (o *scheduledTickOwner) register(c *Chunk) *chunkScheduledTicks {
 	root, _ := c.anvilRoot.Object()
-	h := &chunkScheduledTicks{owner: o, x: c.cx, z: c.cz, queue: tickqueue.NewChunk(tickqueue.DecodeSavedNBT(root["fluid_ticks"], c.cx, c.cz, parseScheduledFluid))}
+	h := &chunkScheduledTicks{owner: o, x: c.cx, z: c.cz, minY: c.minY, queue: tickqueue.NewChunk(tickqueue.DecodeSavedNBT(root["fluid_ticks"], c.cx, c.cz, parseScheduledFluid))}
 	h.inhabitedTime, _ = root.Number("InhabitedTime")
 	for si, section := range c.sect {
 		if section != nil {
@@ -119,6 +125,7 @@ func (o *scheduledTickOwner) register(c *Chunk) *chunkScheduledTicks {
 	o.loadOrder = append(o.loadOrder, h)
 	o.level.Add(c.cx, c.cz, h.queue)
 	o.blocks.Add(c.cx, c.cz, h.blocks)
+	o.refreshActivationNeighbors(c.cx, c.cz)
 	return h
 }
 
@@ -153,10 +160,20 @@ func (h *chunkScheduledTicks) snapshot() (nbt.Tag, nbt.Tag, nbt.Tag, uint64, int
 	saved := snapshotScheduledQueue(o.level, h.queue, o.current, h.x, h.z, o.now)
 	blocks := snapshotScheduledQueue(o.blocks, h.blocks, o.currentBlock, h.x, h.z, o.now)
 	var post nbt.Tag
-	if h.active {
+	if h.active || h.postIndex > 0 {
 		sections := make([]nbt.Tag, h.postSections)
+		positions := make([][]nbt.Tag, h.postSections)
+		for _, p := range h.post[h.postIndex:] {
+			section := (p.Y - h.minY) >> 4
+			packed := int16((p.X & 15) | ((p.Y-h.minY)&15)<<4 | (p.Z&15)<<8)
+			positions[section] = append(positions[section], nbt.Tag{Type: nbt.Short, Value: packed})
+		}
 		for i := range sections {
-			sections[i] = nbt.Tag{Type: nbt.List, ListType: nbt.End, Value: []nbt.Tag{}}
+			element := byte(nbt.End)
+			if len(positions[i]) > 0 {
+				element = nbt.Short
+			}
+			sections[i] = nbt.Tag{Type: nbt.List, ListType: element, Value: positions[i]}
 		}
 		elementType := byte(nbt.List)
 		if len(sections) == 0 {
@@ -209,6 +226,8 @@ func (h *chunkScheduledTicks) unregister() {
 	o.level.Remove(h.x, h.z)
 	o.blocks.Remove(h.x, h.z)
 	delete(o.chunks, k)
+	delete(o.activationReady, h)
+	o.refreshActivationNeighbors(h.x, h.z)
 	o.trapChunks = slices.DeleteFunc(o.trapChunks, func(record *chunkScheduledTicks) bool { return record == h })
 	o.explosionChunks = slices.DeleteFunc(o.explosionChunks, func(record *chunkScheduledTicks) bool { return record == h })
 	delete(o.hurtChunks, h)
@@ -270,6 +289,50 @@ func (o *scheduledTickOwner) neighborhoodLoadedLocked(cx, cz, radius int32) bool
 	return true
 }
 
+// A loaded or unloaded chunk can change readiness only for these nine centers.
+// The caller holds owner.mu.
+func (o *scheduledTickOwner) refreshActivationNeighbors(cx, cz int32) {
+	for x := cx - 1; x <= cx+1; x++ {
+		for z := cz - 1; z <= cz+1; z++ {
+			h := o.chunks[tickqueue.ChunkKey(x, z)]
+			if h != nil && !h.active {
+				if o.ready(h) {
+					o.activationReady[h] = struct{}{}
+				} else {
+					delete(o.activationReady, h)
+				}
+			}
+		}
+	}
+}
+
+// Select with the current tickets, since players can move before a ready
+// chunk gets a turn. The world lock keeps the selected neighborhood loaded.
+func (o *scheduledTickOwner) nextActivation(tickets *simulationTickets) *chunkScheduledTicks {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var next *chunkScheduledTicks
+	var priority int32
+	for h := range o.activationReady {
+		ticket, eligible := tickets.chunks[chunkKey{h.x, h.z}]
+		if !eligible || ticket.level > 32 || h.activationRetry > o.now {
+			continue
+		}
+		if next == nil || ticket.activationPriority < priority || ticket.activationPriority == priority &&
+			(h.x < next.x || h.x == next.x && h.z < next.z) {
+			next, priority = h, ticket.activationPriority
+		}
+	}
+	return next
+}
+
+func (o *scheduledTickOwner) entityTickReady(x, z int32) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	h := o.chunks[tickqueue.ChunkKey(x, z)]
+	return h != nil && h.active && o.neighborhoodLoadedLocked(x, z, 2)
+}
+
 // activate follows ChunkMap.prepareTickingChunk: a full 3x3 neighborhood,
 // postProcessGeneration, then ServerLevel.startTickingChunk/unpackTicks.
 // The caller holds blockUpdateMu; callbacks may safely use region messages.
@@ -281,38 +344,54 @@ func (o *scheduledTickOwner) activateChunks(eligible func(int32, int32) bool, pr
 	o.mu.Lock()
 	var pending []*chunkScheduledTicks
 	for _, h := range o.loadOrder {
-		if !h.active && (!live || h.activationRetry <= o.now) && eligible(h.x, h.z) && o.ready(h) {
+		if _, ready := o.activationReady[h]; ready && (!live || h.activationRetry <= o.now) && eligible(h.x, h.z) {
 			pending = append(pending, h)
 		}
 	}
 	o.mu.Unlock()
 	var failures []error
-chunk:
 	for _, h := range pending {
-		for h.postIndex < len(h.post) {
-			if err := process(h.post[h.postIndex]); err != nil {
-				failure := fmt.Errorf("activate scheduled chunk %d,%d: %w", h.x, h.z, err)
-				if !live {
-					return failure
-				}
-				failures = append(failures, failure)
-				o.mu.Lock()
-				h.activationRetry = o.now + simulationRetryDelay
-				o.mu.Unlock()
-				continue chunk
+		if err := o.activateChunk(h, process, live, time.Time{}); err != nil {
+			if !live {
+				return err
 			}
-			// postIndex is not read by actors/snapshot; only the serialized
-			// activation pass owns it until the active bit is published.
-			h.postIndex++
+			failures = append(failures, err)
 		}
-		o.mu.Lock()
+	}
+	return errors.Join(failures...)
+}
+
+func (o *scheduledTickOwner) activateChunk(h *chunkScheduledTicks, process func(worldgen.FeaturePosition) error, live bool, deadline time.Time) error {
+	next := h.postIndex
+	var failure error
+	for next < len(h.post) {
+		if err := process(h.post[next]); err != nil {
+			failure = fmt.Errorf("activate scheduled chunk %d,%d: %w", h.x, h.z, err)
+			break
+		}
+		next++
+		if !deadline.IsZero() && !time.Now().Before(deadline) {
+			break
+		}
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if next != h.postIndex {
+		h.postIndex = next
+		h.revision++
+	}
+	if failure != nil && live {
+		h.activationRetry = o.now + simulationRetryDelay
+	}
+	if next == len(h.post) {
 		h.blocks.Unpack(o.now)
 		h.queue.Unpack(o.now)
 		h.active = true
+		h.post, h.postIndex = nil, 0
 		h.revision++
-		o.mu.Unlock()
+		delete(o.activationReady, h)
 	}
-	return errors.Join(failures...)
+	return failure
 }
 
 func (o *scheduledTickOwner) tick(limit int, eligible func(int32, int32) bool, run func(tickqueue.Scheduled[worldgen.FluidType]) error) error {

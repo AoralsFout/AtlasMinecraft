@@ -36,6 +36,7 @@ type Engine struct {
 	revision     uint64
 	work         *relightWork
 	columnCount  atomic.Int64
+	snapshots    sync.Map // Position -> immutable *Data
 }
 
 // Mutable scratch is owned under Engine.mu. It is never included in a
@@ -58,13 +59,12 @@ func New(minY, height int, hasSky bool) (*Engine, error) {
 	return &Engine{minY: minY, height: height, hasSky: hasSky, rules: rules, columns: make(map[Position]*column)}, nil
 }
 
+// Snapshot reads the last completed solve without waiting for unfinished
+// propagation, which may hold the engine lock during chunk generation.
 func (e *Engine) Snapshot(p Position) *Data {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if c := e.columns[p]; c != nil {
-		return c.light
-	}
-	return nil
+	data, _ := e.snapshots.Load(p)
+	snapshot, _ := data.(*Data)
+	return snapshot
 }
 
 // Uninstall persists the latest immutable light snapshot before releasing its
@@ -82,6 +82,7 @@ func (e *Engine) Uninstall(p Position, persist func(*Data) error) error {
 		return err
 	}
 	delete(e.columns, p)
+	e.snapshots.Delete(p)
 	e.columnCount.Add(-1)
 	return nil
 }
@@ -152,9 +153,15 @@ func (e *Engine) Install(p Position, states []uint16, imported *Data) (map[Posit
 	if e.columns[p] != nil {
 		return nil, nil
 	}
-	e.columns[p] = &column{states: append([]uint16(nil), states...), light: imported, trusted: imported != nil && (imported.Complete || imported.Preserved)}
+	c := &column{states: append([]uint16(nil), states...), light: imported, trusted: imported != nil && (imported.Complete || imported.Preserved)}
+	e.columns[p] = c
 	e.columnCount.Add(1)
-	return e.relight(p), nil
+	updates := e.relight(p)
+	if imported != nil && updates[p] == nil {
+		// A trusted import can survive its first solve unchanged.
+		e.snapshots.Store(p, c.light)
+	}
+	return updates, nil
 }
 
 type Change struct {
@@ -433,6 +440,9 @@ func (e *Engine) relight(center Position) map[Position]*Data {
 				updates[p] = data
 			}
 		}
+	}
+	for p, data := range updates {
+		e.snapshots.Store(p, data)
 	}
 	return updates
 }

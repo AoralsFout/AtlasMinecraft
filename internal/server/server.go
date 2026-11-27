@@ -51,6 +51,8 @@ type Server struct {
 	worldClockMu sync.Mutex // Serializes world ticks and daytime commands across dimensions.
 	serverTicks  int32      // Server tick count, independent of the saved game time.
 
+	nextActivationWorld int // Round-robin cursor under worldClockMu.
+
 	nextTeleportID    atomic.Int32
 	listenerMu        sync.Mutex
 	listener          net.Listener

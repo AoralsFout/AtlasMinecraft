@@ -22,38 +22,51 @@ type tickSample struct {
 	interval time.Duration // between completed iterations, including waits/saves
 }
 
+type AutosaveDurations struct {
+	Players, Worlds, Unload time.Duration
+}
+
 type performanceMetrics struct {
-	mu           sync.Mutex
-	boot         time.Time
-	clockStarted time.Time
-	samples      []tickSample
-	next         int
-	count        int
-	total        uint64
-	last         time.Duration
-	saves        uint64
-	lastSave     time.Duration
-	maxSave      time.Duration
-	cpuAt        time.Time
-	cpuUsage     processUsage
-	cpuPercent   float64
-	cpuWindow    time.Duration
+	mu             sync.Mutex
+	boot           time.Time
+	clockStarted   time.Time
+	samples        []tickSample
+	next           int
+	count          int
+	total          uint64
+	last           time.Duration
+	saves          uint64
+	lastSave       time.Duration
+	maxSave        time.Duration
+	lastSavePhases AutosaveDurations
+
+	cpuAt      time.Time
+	cpuUsage   processUsage
+	cpuPercent float64
+	cpuWindow  time.Duration
+
+	activations   uint64
+	maxActivation time.Duration
 }
 
 type tickStats struct {
-	tps         [3]float64
-	observed    time.Duration
-	hasTicks    bool
-	count       int
-	average     time.Duration
-	p95         time.Duration
-	max         time.Duration
-	overBudget  int
-	maxInterval time.Duration
-	lastAge     time.Duration
-	saves       uint64
-	lastSave    time.Duration
-	maxSave     time.Duration
+	tps            [3]float64
+	observed       time.Duration
+	hasTicks       bool
+	count          int
+	average        time.Duration
+	p95            time.Duration
+	max            time.Duration
+	overBudget     int
+	maxInterval    time.Duration
+	lastAge        time.Duration
+	saves          uint64
+	lastSave       time.Duration
+	maxSave        time.Duration
+	lastSavePhases AutosaveDurations
+
+	activations   uint64
+	maxActivation time.Duration
 }
 
 func newPerformanceMetrics(now time.Time) *performanceMetrics {
@@ -66,6 +79,7 @@ func (m *performanceMetrics) startClock(now time.Time) {
 	m.clockStarted = now
 	m.samples = make([]tickSample, tickHistorySize)
 	m.next, m.count, m.total, m.last = 0, 0, 0, 0
+	m.activations, m.maxActivation = 0, 0
 }
 
 func (m *performanceMetrics) recordTick(end time.Time, work time.Duration) {
@@ -87,7 +101,11 @@ func (m *performanceMetrics) recordTick(end time.Time, work time.Duration) {
 
 func (m *performanceMetrics) snapshot(now time.Time) tickStats {
 	m.mu.Lock()
-	s := tickStats{hasTicks: m.total > 0, saves: m.saves, lastSave: m.lastSave, maxSave: m.maxSave}
+	s := tickStats{
+		hasTicks: m.total > 0, saves: m.saves, lastSave: m.lastSave, maxSave: m.maxSave,
+		lastSavePhases: m.lastSavePhases,
+		activations:    m.activations, maxActivation: m.maxActivation,
+	}
 	if m.clockStarted.IsZero() {
 		m.mu.Unlock()
 		return s
@@ -146,13 +164,21 @@ func (s *Server) RecordTick(start time.Time) {
 	s.performance.recordTick(end, end.Sub(start))
 }
 
-func (s *Server) RecordAutosave(start time.Time) {
-	duration := time.Since(start)
+func (s *Server) RecordAutosave(phases AutosaveDurations) {
+	duration := phases.Players + phases.Worlds + phases.Unload
 	m := s.performance
 	m.mu.Lock()
 	m.saves++
 	m.lastSave = duration
 	m.maxSave = max(m.maxSave, duration)
+	m.lastSavePhases = phases
+	m.mu.Unlock()
+}
+
+func (m *performanceMetrics) recordChunkActivation(duration time.Duration) {
+	m.mu.Lock()
+	m.activations++
+	m.maxActivation = max(m.maxActivation, duration)
 	m.mu.Unlock()
 }
 
@@ -170,9 +196,16 @@ func (s tickStats) msptText() string {
 	if s.count == 0 {
 		return fmt.Sprintf("MSPT work (last 1m): no completed ticks; last tick age: %s; autosaves: %d, last/max: %.3f / %.3f ms", s.lastAge.Round(time.Millisecond), s.saves, milliseconds(s.lastSave), milliseconds(s.maxSave))
 	}
-	return fmt.Sprintf("MSPT work (last 1m, avg/P95/max): %.3f / %.3f / %.3f ms; >50ms: %d/%d\nLoop gap max: %.3f ms; last tick age: %s; autosaves: %d, last/max: %.3f / %.3f ms",
+	result := fmt.Sprintf("MSPT work (last 1m, avg/P95/max): %.3f / %.3f / %.3f ms; >50ms: %d/%d\nLoop gap max: %.3f ms; last tick age: %s; autosaves: %d, last/max: %.3f / %.3f ms\nChunk activation passes: %d; slowest: %.3f ms",
 		milliseconds(s.average), milliseconds(s.p95), milliseconds(s.max), s.overBudget, s.count,
-		milliseconds(s.maxInterval), s.lastAge.Round(time.Millisecond), s.saves, milliseconds(s.lastSave), milliseconds(s.maxSave))
+		milliseconds(s.maxInterval), s.lastAge.Round(time.Millisecond), s.saves, milliseconds(s.lastSave), milliseconds(s.maxSave),
+		s.activations, milliseconds(s.maxActivation))
+	if s.saves != 0 {
+		p := s.lastSavePhases
+		result += fmt.Sprintf("\nAutosave phases (last): players %.3f ms; worlds %.3f ms; idle unload %.3f ms",
+			milliseconds(p.Players), milliseconds(p.Worlds), milliseconds(p.Unload))
+	}
+	return result
 }
 
 func milliseconds(d time.Duration) float64 {

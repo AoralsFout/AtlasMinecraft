@@ -44,9 +44,13 @@ func (w *World) tickLocked(chunks TickChunks, live, serverTick bool) error {
 	var failure error
 	var runtime *fluidRuntime
 	if chunks.Blocks != nil {
-		// A saved remaining delay is relative to activation at this boundary.
-		// Advancing first would add a game tick after every unload/reload.
-		runtime, failure = w.prepareScheduledLocked(chunks.Blocks, live)
+		// Explicit steps still prepare their selected chunks at the current age.
+		// The live server has a separate, bounded activation pass between steps.
+		activation := chunks.Blocks
+		if serverTick {
+			activation = nil
+		}
+		runtime, failure = w.prepareScheduledLocked(activation, live)
 	}
 	if serverTick && w.clockSource.Load() != nil {
 		age, _ := w.Time()
