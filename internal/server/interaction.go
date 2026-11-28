@@ -97,7 +97,8 @@ func (s *Server) handlePlace(p *player.Player, payload []byte) {
 			return
 		}
 	}
-	read, err := s.PlayerWorld(p).ReadLoadedBlocks([]world.BlockPosition{clicked})
+	interactionWorld := s.PlayerWorld(p)
+	read, err := interactionWorld.ReadLoadedBlocks([]world.BlockPosition{clicked})
 	if err != nil {
 		return
 	}
@@ -106,16 +107,22 @@ func (s *Server) handlePlace(p *player.Player, payload []byte) {
 		return
 	}
 	inventory, _ := p.Inventory()
-	held := inventory.Slots[36+int(inventory.Selected)]
+	slot := 36 + int(inventory.Selected)
 	if hand == 1 {
-		held = inventory.Slots[45]
+		slot = 45
 	}
+	held := inventory.Slots[slot]
+	heldName, _ := item.Name(held.ID)
 	if !p.Crouching() || held.Empty() {
+		if clickedState.Name == world.TNTEntity && heldName == item.FlintAndSteel && !held.Empty() {
+			s.igniteTNT(p, interactionWorld, clicked, read[0], slot)
+			return
+		}
 		if s.useBlock(p, clicked, read[0], clickedState) {
 			return
 		}
 	}
-	if name, ok := item.Name(held.ID); ok && !held.Empty() && (name == "minecraft:flint_and_steel" || name == "minecraft:fire_charge") {
+	if !held.Empty() && (heldName == item.FlintAndSteel || heldName == "minecraft:fire_charge") {
 		if activated, err := s.PlayerWorld(p).IgniteNetherPortal(target.X, target.Y, target.Z); activated && err == nil {
 			return
 		}
@@ -313,5 +320,51 @@ func (s *Server) handlePlace(p *player.Player, payload []byte) {
 	}
 	if err := s.PlayerWorld(p).TryPlaceBlock(target, expected, id, upper); err != nil {
 		s.Dbg("placement rejected for %s: %v", p.Name, err)
+	}
+}
+
+func (s *Server) igniteTNT(p *player.Player, w *world.World, clicked world.BlockPosition, expected uint32, slot int) {
+	if s.rejectChestInteraction(p) {
+		return
+	}
+	p.MovementMu.Lock()
+	defer p.MovementMu.Unlock()
+	mode := p.GameMode()
+	if mode == player.SpectatorMode || s.PlayerWorld(p) != w || p.TeleportPending() || !canReachBlock(p, clicked) {
+		return
+	}
+	p.SaveMu.Lock()
+	defer p.SaveMu.Unlock()
+	inventory, _ := p.Inventory()
+	held := inventory.Slots[slot]
+	heldName, _ := item.Name(held.ID)
+	if held.Empty() || heldName != item.FlintAndSteel {
+		return
+	}
+	updated := held
+	if mode != player.CreativeMode {
+		var err error
+		updated, err = held.UseFlintAndSteel()
+		if err != nil {
+			s.Dbg("TNT ignition item rejected for %s: %v", p.Name, err)
+			return
+		}
+	}
+	// Publish the spawn before the next server tick can move or detonate it.
+	s.worldClockMu.Lock()
+	defer s.worldClockMu.Unlock()
+	entity, err := w.IgniteTNT(clicked, expected, p.EID)
+	if err != nil {
+		s.Dbg("TNT ignition for %s: %v", p.Name, err)
+	}
+	if entity.Type == "" {
+		return
+	}
+	s.publishLivingDamage(s.Hub.Snapshot(), w.DimensionName(), world.LivingDamageChange{Entity: entity, Spawned: true})
+	if !updated.SameItem(held) {
+		inventory.Slots[slot] = updated
+		s.setInventory(p, inventory)
+		s.sendInventory(p)
+		s.publishEquipment(p)
 	}
 }

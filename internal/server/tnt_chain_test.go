@@ -2,7 +2,9 @@ package server
 
 import (
 	"atlas/internal/anvil"
+	"atlas/internal/item"
 	"atlas/internal/nbt"
+	"atlas/internal/player"
 	"atlas/internal/proto"
 	"atlas/internal/world"
 	"encoding/hex"
@@ -11,6 +13,130 @@ import (
 	"path/filepath"
 	"testing"
 )
+
+func TestPlayerIgnitesTNTWithFlintAndSteel(t *testing.T) {
+	s, p := interactionServer(t)
+	p.SetPlayReady(true)
+	p.MarkChunkSent(0, 0)
+	s.Cfg.SimulationDistance = 2
+	for cx := int32(-2); cx <= 2; cx++ {
+		for cz := int32(-2); cz <= 2; cz++ {
+			if _, err := s.World.LoadChunk(cx, cz); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	tnt, err := world.BlockStateID(world.TNTEntity, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flint, _ := item.ID(item.FlintAndSteel)
+	const x, y, z = 3, -60, 3
+	useTNT := func(hand byte, sequence int32) {
+		payload := placePayload(x, y, z, 1, sequence, .5)
+		payload[0] = hand
+		s.handlePlayPacket(p, proto.CBlockPlace, payload)
+	}
+	for _, tc := range []struct {
+		name string
+		mode int8
+		hand byte
+		slot int
+	}{
+		{"spectator", player.SpectatorMode, 0, 38},
+		{"creative main hand", player.CreativeMode, 0, 38},
+		{"survival offhand", 0, 1, 45},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p.SetInitialGameMode(tc.mode)
+			if err := s.World.SetBlock(x, y, z, tnt); err != nil {
+				t.Fatal(err)
+			}
+			inventory := item.Inventory{Selected: 2}
+			tool := item.New(flint, 1)
+			if tc.mode == 0 {
+				// The last use must still ignite TNT before the tool breaks.
+				tool.Patch = []byte{1, 0, 3, 63}
+			}
+			inventory.Slots[tc.slot] = tool
+			s.setInventory(p, inventory)
+			for len(p.Out) > 0 {
+				<-p.Out
+			}
+			useTNT(tc.hand, 1)
+			useTNT(tc.hand, 2)
+			if tc.mode == player.SpectatorMode {
+				assertAck(t, p, 1)
+				assertInteractionState(t, s.World, x, y, z, tnt)
+				return
+			}
+			assertInteractionState(t, s.World, x, y, z, world.StateAir)
+			var spawns, sounds, acks int
+			for len(p.Out) > 0 {
+				packet := <-p.Out
+				r := proto.NewReader(packet.Payload)
+				switch packet.ID {
+				case proto.SSpawnEntity:
+					_, _ = r.VarInt()
+					_, _ = r.UUID()
+					if kind, _ := r.VarInt(); kind == generatedEntityTypes[world.TNTEntity] {
+						spawns++
+					}
+				case proto.SSoundEffect:
+					holder, _ := r.VarInt()
+					category, _ := r.VarInt()
+					sx, _ := r.I32()
+					sy, _ := r.I32()
+					sz, _ := r.I32()
+					if holder == 1383 && category == 4 && sx == x*8+4 && sy == y*8 && sz == z*8+4 {
+						sounds++
+					}
+				case proto.SAckBlockChange:
+					acks++
+				}
+			}
+			if spawns != 1 || sounds != 1 || acks != 2 {
+				t.Fatalf("got %d spawns, %d sounds, %d acknowledgments", spawns, sounds, acks)
+			}
+			inventory, _ = p.Inventory()
+			held := inventory.Slots[tc.slot]
+			if tc.mode == player.CreativeMode && !held.SameItem(tool) || tc.mode == 0 && !held.Empty() {
+				t.Fatalf("unexpected held tool after ignition: %+v", held)
+			}
+			snapshots, err := s.World.EntitiesInChunk(0, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var primed []world.WorldEntity
+			for _, entity := range snapshots {
+				if entity.Type == world.TNTEntity {
+					primed = append(primed, entity)
+				}
+			}
+			if len(primed) != 1 {
+				t.Fatalf("got %d primed TNT entities", len(primed))
+			}
+			if fuse, _ := primed[0].Data.Number("fuse"); fuse != 80 {
+				t.Fatalf("fuse: got %d, want 80", fuse)
+			}
+			if err := s.World.TickScheduled(func(x, z int32) bool { return x == 0 && z == 0 }); err != nil {
+				t.Fatal(err)
+			}
+			for tick := 1; tick <= 80; tick++ {
+				if err := s.TickWorlds(); err != nil {
+					t.Fatal(err)
+				}
+				var exploded bool
+				for len(p.Out) > 0 {
+					exploded = (<-p.Out).ID == proto.SExplosion || exploded
+				}
+				if exploded != (tick == 80) {
+					t.Fatalf("tick %d: received explosion = %t", tick, exploded)
+				}
+			}
+		})
+	}
+}
 
 func TestPrimedTNTPacketsAgainstDedicatedServer(t *testing.T) {
 	var ref struct {

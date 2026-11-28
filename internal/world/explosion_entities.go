@@ -13,7 +13,10 @@ import (
 	"slices"
 )
 
-const TNTEntity = "minecraft:tnt"
+const (
+	TNTEntity    = "minecraft:tnt"
+	tntFuseTicks = 80
+)
 
 func ticksExplosionActor(kind string) bool {
 	return kind == "minecraft:creeper" || kind == TNTEntity || kind == "minecraft:item"
@@ -44,8 +47,22 @@ func entityMotion(e WorldEntity) (motion [3]float64) {
 }
 
 func (w *World) primeBlastTNT(p worldgen.FeaturePosition, source WorldEntity) (WorldEntity, error) {
+	owner := source.RuntimeID
+	if source.Type == TNTEntity {
+		owner = source.tntOwner
+	}
+	return w.newPrimedTNT(BlockPosition(p), owner, true)
+}
+
+func (w *World) newPrimedTNT(p BlockPosition, owner int32, fromExplosion bool) (WorldEntity, error) {
+	if err := w.ensureTickRandom(); err != nil {
+		return WorldEntity{}, err
+	}
 	angle := w.tickRandom.NextDouble() * float64(float32(2*math.Pi))
-	fuse := int64(10 + w.tickRandom.NextIntBound(20))
+	fuse := int64(tntFuseTicks)
+	if fromExplosion {
+		fuse = tntFuseTicks/8 + int64(w.tickRandom.NextIntBound(tntFuseTicks/4))
+	}
 	// Entity UUID generation has its own RNG. Only launch angle and fuse use the level RNG.
 	hi, lo := rand.Uint64()&0xffffffffffff0fff|0x4000, rand.Uint64()&0x3fffffffffffffff|0x8000000000000000
 	pos := [3]float64{float64(p.X) + .5, float64(p.Y), float64(p.Z) + .5}
@@ -66,10 +83,7 @@ func (w *World) primeBlastTNT(p worldgen.FeaturePosition, source WorldEntity) (W
 		}},
 	})
 	e.RuntimeID = NextRuntimeEntityID()
-	e.tntOwner = source.RuntimeID
-	if source.Type == TNTEntity {
-		e.tntOwner = source.tntOwner
-	}
+	e.tntOwner = owner
 	return e, err
 }
 

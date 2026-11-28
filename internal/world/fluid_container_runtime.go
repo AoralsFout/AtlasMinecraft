@@ -27,20 +27,23 @@ func (r *fluidRuntime) FluidSound(p worldgen.FeaturePosition, name string) error
 	if !ok {
 		return fmt.Errorf("unknown fluid container sound %s", name)
 	}
+	r.world.playBlockSound([3]float64{float64(p.X) + .5, float64(p.Y) + .5, float64(p.Z) + .5}, int32(sound[0]), sound[1])
+	return nil
+}
+
+func (w *World) playBlockSound(pos [3]float64, soundID int32, radius float64) {
 	// Level.playSound draws a seed even when no player receives the packet.
-	seed := r.world.nextSoundSeed()
-	// Registry holders encode the registered ID plus one. Coordinates are
-	// eighths of a block; extinguishing uses its block's center and BLOCKS=4.
-	payload := proto.NewWriter().VarInt(int32(sound[0]) + 1).VarInt(4).
-		I32(p.X*8 + 4).I32(p.Y*8 + 4).I32(p.Z*8 + 4).F32(1).F32(1).I64(seed).Payload()
-	if listeners, ok := r.world.hub.(interface {
+	// Registry holders encode the registered ID plus one, and BLOCKS is 4.
+	x, y, z := pos[0], pos[1], pos[2]
+	payload := proto.NewWriter().VarInt(soundID + 1).VarInt(4).
+		I32(int32(x * 8)).I32(int32(y * 8)).I32(int32(z * 8)).F32(1).F32(1).I64(w.nextSoundSeed()).Payload()
+	if listeners, ok := w.hub.(interface {
 		SoundListeners(float64, float64, float64, float64) []PacketSink
 	}); ok {
-		for _, sink := range listeners.SoundListeners(float64(p.X)+.5, float64(p.Y)+.5, float64(p.Z)+.5, sound[1]) {
+		for _, sink := range listeners.SoundListeners(x, y, z, radius) {
 			sink.SendPacket(proto.SSoundEffect, payload)
 		}
 	}
-	return nil
 }
 
 // Sound-producing world operations hold blockUpdateMu.

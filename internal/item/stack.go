@@ -181,7 +181,7 @@ func read(r *proto.Reader, depth int) (Stack, error) {
 		return Stack{}, errors.New("invalid item ID")
 	}
 	rest := r.Rest()
-	if _, _, err := readComponents(r, depth+1); err != nil {
+	if _, _, err := readComponents(r, depth+1, nil); err != nil {
 		return Stack{}, err
 	}
 	size := len(rest) - r.Remaining()
@@ -191,9 +191,10 @@ func read(r *proto.Reader, depth int) (Stack, error) {
 	return Stack{ID: id, Count: count, Patch: bytes.Clone(rest[:size])}, nil
 }
 func (s Stack) components() (map[string]any, []string, error) {
-	return readComponents(proto.NewReader(s.Patch), 0)
+	return readComponents(proto.NewReader(s.Patch), 0, nil)
 }
-func readComponents(r *proto.Reader, depth int) (map[string]any, []string, error) {
+func readComponents(r *proto.Reader, depth int, onAdded func(name string, start, end int)) (map[string]any, []string, error) {
+	size := r.Remaining()
 	added, e1 := r.VarInt()
 	removed, e2 := r.VarInt()
 	if e1 != nil || e2 != nil || added < 0 || removed < 0 || added+removed > 57 {
@@ -209,11 +210,15 @@ func readComponents(r *proto.Reader, depth int) (map[string]any, []string, error
 			return nil, nil, errors.New("invalid or duplicate component ID")
 		}
 		seen[id] = true
+		start := size - r.Remaining()
 		value, err := readValue(r, fields[name], nil, depth+1)
 		if err != nil {
 			return nil, nil, fmt.Errorf("component %s: %w", name, err)
 		}
 		values[name] = value
+		if onAdded != nil {
+			onAdded(name, start, size-r.Remaining())
+		}
 	}
 	var removals []string
 	for range removed {
